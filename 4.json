@@ -1,0 +1,11 @@
+{
+    "name": "Traffic Cone #4",
+    "description": "A unique traffic cone hat NFT that stands out in any crowd",
+    "image": "https://your-domain.com/images/traffic-cone.png",
+    "attributes": [
+        {
+            "trait_type": "Hat Type",
+            "value": "Traffic cone"
+        }
+    ]
+}

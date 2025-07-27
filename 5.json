@@ -1,0 +1,11 @@
+{
+    "name": "Cowboy Hat #2",
+    "description": "A classic cowboy hat NFT for the wild west enthusiast",
+    "image": "https://your-domain.com/images/cowboy-hat.png",
+    "attributes": [
+        {
+            "trait_type": "Hat Type",
+            "value": "Cowboy hat"
+        }
+    ]
+}

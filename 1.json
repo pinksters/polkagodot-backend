@@ -1,0 +1,11 @@
+{
+    "name": "Hawaiian Hat #1",
+    "description": "A vibrant Hawaiian hat NFT perfect for tropical vibes",
+    "image": "https://your-domain.com/images/hawaiian-hat.png",
+    "attributes": [
+        {
+            "trait_type": "Hat Type",
+            "value": "Hawaiian hat"
+        }
+    ]
+}

@@ -1,0 +1,11 @@
+{
+    "name": "Bucket Hat #3",
+    "description": "A stylish bucket hat NFT for casual outdoor adventures",
+    "image": "https://your-domain.com/images/bucket-hat.png",
+    "attributes": [
+        {
+            "trait_type": "Hat Type",
+            "value": "Bucket hat"
+        }
+    ]
+}
