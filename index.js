@@ -1,12 +1,14 @@
+require('dotenv').config();
 const express = require('express');
 const { ethers } = require('ethers');
 const fetch = require('node-fetch');
 
 // Configuration
-const HAT_NFT_ADDRESS = '0x324a3b3A6E00E07A7EC13D03d468C257350A3Df9';
-const GAME_MANAGER_ADDRESS = '0x6613AEb8b4928f23ef24e3Fc918187BE84D7817B';
-const RPC_URL = 'https://testnet-passet-hub-eth-rpc.polkadot.io';
-const PORT = 3002;
+const HAT_NFT_ADDRESS = process.env.HAT_NFT_ADDRESS || '0x324a3b3A6E00E07A7EC13D03d468C257350A3Df9';
+const GAME_MANAGER_ADDRESS = process.env.GAME_MANAGER_ADDRESS || '0x6613AEb8b4928f23ef24e3Fc918187BE84D7817B';
+const RPC_URL = process.env.RPC_URL || 'https://testnet-passet-hub-eth-rpc.polkadot.io';
+const PORT = process.env.PORT || 3002;
+const PRIVATE_KEY = process.env.PRIVATE_KEY;
 
 // HatNFT ABI
 const HAT_NFT_ABI = [
@@ -40,6 +42,17 @@ app.use((req, res, next) => {
 const provider = new ethers.providers.JsonRpcProvider(RPC_URL);
 const hatNFTContract = new ethers.Contract(HAT_NFT_ADDRESS, HAT_NFT_ABI, provider);
 const gameManagerContract = new ethers.Contract(GAME_MANAGER_ADDRESS, GAME_MANAGER_ABI, provider);
+
+// Initialize wallet if private key is provided
+let wallet;
+let gameManagerWithSigner;
+if (PRIVATE_KEY) {
+    wallet = new ethers.Wallet(PRIVATE_KEY, provider);
+    gameManagerWithSigner = new ethers.Contract(GAME_MANAGER_ADDRESS, GAME_MANAGER_ABI, wallet);
+    console.log(`🔑 Wallet connected: ${wallet.address}`);
+} else {
+    console.log('⚠️  No private key provided - only read operations available');
+}
 
 async function getTokensForAddress(userAddress) {
     try {
@@ -127,7 +140,9 @@ app.get('/', (req, res) => {
             'GET /game/:gameId': 'Get game result details',
             'GET /scoring': 'Get current scoring mode',
             'GET /leaderboard': 'Get leaderboard data',
-            'POST /leaderboard/custom': 'Get custom leaderboard for specific players'
+            'POST /leaderboard/custom': 'Get custom leaderboard for specific players',
+            'POST /admin/submit-game': 'Submit game results (requires private key)',
+            'POST /admin/toggle-scoring': 'Toggle score ordering mode (requires private key)'
         }
     });
 });
@@ -300,6 +315,152 @@ app.post('/tokens/batch', async (req, res) => {
 });
 
 // === GAME MANAGER ENDPOINTS ===
+
+// === ADMIN ENDPOINTS (Require Private Key) ===
+
+// Submit game results
+app.post('/admin/submit-game', async (req, res) => {
+    try {
+        if (!gameManagerWithSigner) {
+            return res.status(403).json({
+                error: 'Private key required',
+                message: 'This endpoint requires PRIVATE_KEY to be set in environment variables'
+            });
+        }
+
+        const { players, scores } = req.body;
+
+        if (!players || !scores || !Array.isArray(players) || !Array.isArray(scores)) {
+            return res.status(400).json({
+                error: 'Invalid request body',
+                message: 'Required: { "players": ["0x...", "0x..."], "scores": [100, 75, 120] }'
+            });
+        }
+
+        if (players.length !== scores.length) {
+            return res.status(400).json({
+                error: 'Arrays length mismatch',
+                message: 'players and scores arrays must have the same length'
+            });
+        }
+
+        if (players.length === 0 || players.length > 7) {
+            return res.status(400).json({
+                error: 'Invalid player count',
+                message: 'Must have between 1 and 7 players'
+            });
+        }
+
+        // Validate addresses
+        for (const address of players) {
+            if (!ethers.utils.isAddress(address)) {
+                return res.status(400).json({
+                    error: 'Invalid Ethereum address',
+                    address: address
+                });
+            }
+        }
+
+        // Validate scores are numbers
+        for (const score of scores) {
+            if (typeof score !== 'number' || score < 0) {
+                return res.status(400).json({
+                    error: 'Invalid score',
+                    message: 'All scores must be positive numbers'
+                });
+            }
+        }
+
+        console.log(`🎮 Submitting game with ${players.length} players...`);
+
+        // Submit transaction
+        const tx = await gameManagerWithSigner.submitGameResult(players, scores);
+        console.log(`📡 Transaction sent: ${tx.hash}`);
+
+        // Wait for confirmation
+        const receipt = await tx.wait();
+        console.log(`✅ Transaction confirmed in block ${receipt.blockNumber}`);
+
+        // Get the current game ID (it was incremented after submission)
+        const currentGameId = await gameManagerContract.getTotalGames();
+        const gameId = currentGameId.toNumber();
+
+        res.json({
+            success: true,
+            gameId: gameId,
+            transactionHash: tx.hash,
+            blockNumber: receipt.blockNumber,
+            gasUsed: receipt.gasUsed.toString(),
+            players: players,
+            scores: scores,
+            timestamp: new Date().toISOString()
+        });
+
+    } catch (error) {
+        console.error('Error in /admin/submit-game:', error);
+        res.status(500).json({
+            error: 'Failed to submit game results',
+            message: error.message,
+            ...(error.code && { code: error.code }),
+            ...(error.reason && { reason: error.reason })
+        });
+    }
+});
+
+// Toggle score ordering
+app.post('/admin/toggle-scoring', async (req, res) => {
+    try {
+        if (!gameManagerWithSigner) {
+            return res.status(403).json({
+                error: 'Private key required',
+                message: 'This endpoint requires PRIVATE_KEY to be set in environment variables'
+            });
+        }
+
+        // Get current mode before toggling
+        const currentMode = await gameManagerContract.isDescendingOrder();
+
+        console.log(`🔄 Toggling score ordering from ${currentMode ? 'descending' : 'ascending'}...`);
+
+        // Submit transaction
+        const tx = await gameManagerWithSigner.toggleScoreOrdering();
+        console.log(`📡 Transaction sent: ${tx.hash}`);
+
+        // Wait for confirmation
+        const receipt = await tx.wait();
+        console.log(`✅ Transaction confirmed in block ${receipt.blockNumber}`);
+
+        // Get new mode after toggling
+        const newMode = await gameManagerContract.isDescendingOrder();
+
+        res.json({
+            success: true,
+            previousMode: {
+                isDescendingOrder: currentMode,
+                description: currentMode ? 'Higher scores better' : 'Lower scores better'
+            },
+            newMode: {
+                isDescendingOrder: newMode,
+                description: newMode ? 'Higher scores better' : 'Lower scores better'
+            },
+            transactionHash: tx.hash,
+            blockNumber: receipt.blockNumber,
+            gasUsed: receipt.gasUsed.toString(),
+            timestamp: new Date().toISOString()
+        });
+
+    } catch (error) {
+        console.error('Error in /admin/toggle-scoring:', error);
+        res.status(500).json({
+            error: 'Failed to toggle score ordering',
+            message: error.message,
+            ...(error.code && { code: error.code }),
+            ...(error.reason && { reason: error.reason })
+        });
+    }
+});
+
+// === PUBLIC ENDPOINTS ===
 
 // Get player stats
 app.get('/player/:address/stats', async (req, res) => {
@@ -701,7 +862,9 @@ app.use((req, res) => {
             'GET /game/:gameId',
             'GET /scoring',
             'GET /leaderboard',
-            'POST /leaderboard/custom'
+            'POST /leaderboard/custom',
+            'POST /admin/submit-game',
+            'POST /admin/toggle-scoring'
         ]
     });
 });
@@ -726,6 +889,9 @@ app.listen(PORT, () => {
     console.log(`   GET  http://localhost:${PORT}/scoring`);
     console.log(`   GET  http://localhost:${PORT}/leaderboard`);
     console.log(`   POST http://localhost:${PORT}/leaderboard/custom`);
+    console.log(`   === ADMIN ENDPOINTS ===`);
+    console.log(`   POST http://localhost:${PORT}/admin/submit-game`);
+    console.log(`   POST http://localhost:${PORT}/admin/toggle-scoring`);
     console.log(`\n💡 Example: http://localhost:${PORT}/player/0x742d35Cc6634C0532925a3b8d0c05E6E4b8c3C0E/stats\n`);
 });
 

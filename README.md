@@ -128,6 +128,23 @@ Response: {
 # Custom leaderboard for specific players
 POST /leaderboard/custom
 Body: { "addresses": ["0x...", "0x..."] }
+
+# Get current scoring mode
+GET /scoring
+```
+
+#### Admin Endpoints (Require Private Key)
+
+```bash
+# Submit game results
+POST /admin/submit-game
+Body: { 
+  "players": ["0x...", "0x...", "0x..."], 
+  "scores": [100, 75, 120] 
+}
+
+# Toggle score ordering mode
+POST /admin/toggle-scoring
 ```
 
 ## 🏁 Game Mechanics
@@ -217,6 +234,23 @@ gameManager.toggleScoreOrdering();
 
 // Check current mode
 bool isDescending = gameManager.isDescendingOrder(); // true = higher scores better
+```
+
+### Submit Game Results via API
+
+```bash
+curl -X POST http://localhost:3002/admin/submit-game \
+  -H "Content-Type: application/json" \
+  -d '{
+    "players": ["0x742d35Cc6634C0532925a3b8d0c05E6E4b8c3C0E", "0x456..."],
+    "scores": [100, 75]
+  }'
+```
+
+### Toggle Score Ordering via API
+
+```bash
+curl -X POST http://localhost:3002/admin/toggle-scoring
 ```
 
 ### Query Player Stats
