@@ -4,8 +4,8 @@ const { ethers } = require('ethers');
 const fetch = require('node-fetch');
 
 // Configuration
-const HAT_NFT_ADDRESS = process.env.HAT_NFT_ADDRESS || '0x324a3b3A6E00E07A7EC13D03d468C257350A3Df9';
-const GAME_MANAGER_ADDRESS = process.env.GAME_MANAGER_ADDRESS || '0x6613AEb8b4928f23ef24e3Fc918187BE84D7817B';
+const HAT_NFT_ADDRESS = process.env.HAT_NFT_ADDRESS || '0x19160f83751816FAF5C28F9B5086399E2653E147';
+const GAME_MANAGER_ADDRESS = process.env.GAME_MANAGER_ADDRESS || '0x6B6b4C445a46c65666360abCcCAd00B12B8AD1E2';
 const RPC_URL = process.env.RPC_URL || 'https://testnet-passet-hub-eth-rpc.polkadot.io';
 const PORT = process.env.PORT || 3002;
 const PRIVATE_KEY = process.env.PRIVATE_KEY;

@@ -8,7 +8,7 @@ A racing game ecosystem built on Polkadot's Paseo testnet featuring NFT hats and
 
 #### 1. HatNFT Contract
 
-**Address:** `0x324a3b3A6E00E07A7EC13D03d468C257350A3Df9`
+**Address:** `0x19160f83751816FAF5C28F9B5086399E2653E147`
 
 ERC721 NFT contract for collectible racing hats with 4 unique types:
 
@@ -26,7 +26,7 @@ ERC721 NFT contract for collectible racing hats with 4 unique types:
 
 #### 2. GameManager Contract
 
-**Address:** `0x6613AEb8b4928f23ef24e3Fc918187BE84D7817B`
+**Address:** `0x6B6b4C445a46c65666360abCcCAd00B12B8AD1E2`
 
 Enhanced racing game management contract with flexible scoring system:
 
@@ -138,9 +138,9 @@ GET /scoring
 ```bash
 # Submit game results
 POST /admin/submit-game
-Body: { 
-  "players": ["0x...", "0x...", "0x..."], 
-  "scores": [100, 75, 120] 
+Body: {
+  "players": ["0x...", "0x...", "0x..."],
+  "scores": [100, 75, 120]
 }
 
 # Toggle score ordering mode
@@ -191,8 +191,8 @@ npm install
 Update contract addresses in `index.js`:
 
 ```javascript
-const HAT_NFT_ADDRESS = '0x324a3b3A6E00E07A7EC13D03d468C257350A3Df9';
-const GAME_MANAGER_ADDRESS = '0x6613AEb8b4928f23ef24e3Fc918187BE84D7817B';
+const HAT_NFT_ADDRESS = '0x19160f83751816FAF5C28F9B5086399E2653E147';
+const GAME_MANAGER_ADDRESS = '0x6B6b4C445a46c65666360abCcCAd00B12B8AD1E2';
 ```
 
 ### Run Server
