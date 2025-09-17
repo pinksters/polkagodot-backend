@@ -4,7 +4,7 @@ const fetch = require('node-fetch');
 
 // Configuration
 const HAT_NFT_ADDRESS = '0x324a3b3A6E00E07A7EC13D03d468C257350A3Df9';
-const GAME_MANAGER_ADDRESS = '0xb4F7A6aF596FF963a00Bf27C9438fB88Abf5f414';
+const GAME_MANAGER_ADDRESS = '0x6613AEb8b4928f23ef24e3Fc918187BE84D7817B';
 const RPC_URL = 'https://testnet-passet-hub-eth-rpc.polkadot.io';
 const PORT = 3002;
 
@@ -16,13 +16,14 @@ const HAT_NFT_ABI = [
     "function getHatType(uint256 tokenId) view returns (string)"
 ];
 
-// GameManagerLite ABI
+// GameManager ABI
 const GAME_MANAGER_ABI = [
-    "function playerStats(address) view returns (uint256 bestScore, uint256 bestScoreGameId, uint256 totalGames, uint256 totalWins, uint256 equippedHat, bool hasPlayed)",
+    "function playerStats(address) view returns (uint256 bestScore, uint256 totalWins, uint256 equippedHat, bool hasPlayed)",
     "function getTotalGames() view returns (uint256)",
-    "event GameCompleted(uint256 indexed gameId, address indexed winner, uint256 playerCount, address[] players, uint256[] times, uint256[] equippedHats, uint256 timestamp)",
-    "event HatEquipped(address indexed player, uint256 indexed tokenId)",
-    "event NewPersonalBest(address indexed player, uint256 newBestScore, uint256 gameId)"
+    "function isDescendingOrder() view returns (bool)",
+    "function getEquippedHat(address player) view returns (uint256)",
+    "event GameSubmitted(uint256 indexed gameId, address indexed winner, uint256 playerCount, address[] players, uint256[] scores)",
+    "event ScoreOrderingChanged(bool isDescendingOrder)"
 ];
 
 const app = express();
@@ -124,6 +125,7 @@ app.get('/', (req, res) => {
             'GET /player/:address/stats': 'Get player game statistics',
             'GET /player/:address/equipped': 'Get player equipped hat',
             'GET /game/:gameId': 'Get game result details',
+            'GET /scoring': 'Get current scoring mode',
             'GET /leaderboard': 'Get leaderboard data',
             'POST /leaderboard/custom': 'Get custom leaderboard for specific players'
         }
@@ -146,6 +148,15 @@ app.get('/info', async (req, res) => {
             console.log('GameManager not deployed yet or error:', error.message);
         }
 
+        let isDescendingOrder = true;
+        try {
+            if (GAME_MANAGER_ADDRESS !== '0x0000000000000000000000000000000000000000') {
+                isDescendingOrder = await gameManagerContract.isDescendingOrder();
+            }
+        } catch (error) {
+            console.log('Could not get scoring mode:', error.message);
+        }
+
         res.json({
             contracts: {
                 hatNFT: HAT_NFT_ADDRESS,
@@ -157,7 +168,9 @@ app.get('/info', async (req, res) => {
                 baseURI: 'https://pinkhats.4everland.store/'
             },
             gameManager: {
-                totalGames: totalGames
+                totalGames: totalGames,
+                isDescendingOrder: isDescendingOrder,
+                scoringMode: isDescendingOrder ? 'Higher scores better' : 'Lower scores better'
             },
             ethersVersion: '5.x'
         });
@@ -313,8 +326,6 @@ app.get('/player/:address/stats', async (req, res) => {
             address: address,
             stats: {
                 bestScore: playerStats.bestScore.toNumber(),
-                bestScoreGameId: playerStats.bestScoreGameId.toNumber(),
-                totalGamesPlayed: playerStats.totalGames.toNumber(),
                 totalWins: playerStats.totalWins.toNumber(),
                 equippedHat: playerStats.equippedHat.toNumber(),
                 hasPlayed: playerStats.hasPlayed
@@ -332,9 +343,9 @@ app.get('/player/:address/stats', async (req, res) => {
             }
         }
 
-        // Get game history from events
+        // Get game history from events since contract no longer stores it
         try {
-            const gameFilter = gameManagerContract.filters.GameCompleted(null, null, null, null, null, null, null);
+            const gameFilter = gameManagerContract.filters.GameSubmitted(null, null, null, null, null);
             const events = await gameManagerContract.queryFilter(gameFilter);
 
             const gamesPlayed = [];
@@ -346,9 +357,11 @@ app.get('/player/:address/stats', async (req, res) => {
             }
 
             response.stats.gamesPlayed = gamesPlayed;
+            response.stats.totalGamesPlayed = gamesPlayed.length;
         } catch (error) {
             console.log('Could not fetch game history:', error.message);
             response.stats.gamesPlayed = [];
+            response.stats.totalGamesPlayed = 0;
         }
 
         res.json(response);
@@ -357,6 +370,35 @@ app.get('/player/:address/stats', async (req, res) => {
         console.error('Error in /player/:address/stats:', error);
         res.status(500).json({
             error: 'Failed to get player stats',
+            message: error.message
+        });
+    }
+});
+
+// Get current scoring mode
+app.get('/scoring', async (req, res) => {
+    try {
+        if (GAME_MANAGER_ADDRESS === '0x0000000000000000000000000000000000000000') {
+            return res.status(503).json({
+                error: 'GameManager contract not deployed yet'
+            });
+        }
+
+        const isDescendingOrder = await gameManagerContract.isDescendingOrder();
+
+        res.json({
+            isDescendingOrder: isDescendingOrder,
+            scoringMode: isDescendingOrder ? 'Higher scores better' : 'Lower scores better',
+            description: isDescendingOrder ?
+                'Descending mode: 100 beats 50 (higher is better)' :
+                'Ascending mode: 50 beats 100 (lower is better)',
+            timestamp: new Date().toISOString()
+        });
+
+    } catch (error) {
+        console.error('Error in /scoring:', error);
+        res.status(500).json({
+            error: 'Failed to get scoring mode',
             message: error.message
         });
     }
@@ -380,8 +422,7 @@ app.get('/player/:address/equipped', async (req, res) => {
             });
         }
 
-        const playerStats = await gameManagerContract.playerStats(address);
-        const equippedHatId = playerStats.equippedHat;
+        const equippedHatId = await gameManagerContract.getEquippedHat(address);
         const hatId = equippedHatId.toNumber();
 
         const response = {
@@ -433,8 +474,8 @@ app.get('/game/:gameId', async (req, res) => {
             });
         }
 
-        // Get game data from events
-        const gameFilter = gameManagerContract.filters.GameCompleted(gameIdNum, null, null, null, null, null, null);
+        // Get game data from events since contract no longer stores game results
+        const gameFilter = gameManagerContract.filters.GameSubmitted(gameIdNum, null, null, null, null);
         const events = await gameManagerContract.queryFilter(gameFilter);
 
         if (events.length === 0) {
@@ -447,29 +488,42 @@ app.get('/game/:gameId', async (req, res) => {
         const gameEvent = events[0];
         const eventArgs = gameEvent.args;
 
+        // Get current scoring mode
+        const isDescendingOrder = await gameManagerContract.isDescendingOrder();
+
         const players = [];
         for (let i = 0; i < eventArgs.playerCount.toNumber(); i++) {
             const player = {
                 address: eventArgs.players[i],
-                time: eventArgs.times[i].toNumber(),
-                equippedHat: eventArgs.equippedHats[i].toNumber(),
+                score: eventArgs.scores[i].toNumber(),
                 position: i + 1
             };
 
-            // Add hat type if not default
-            if (player.equippedHat !== 0) {
-                try {
-                    player.hatType = await hatNFTContract.getHatType(player.equippedHat);
-                } catch (error) {
-                    console.log('Could not fetch hat type for player:', error.message);
+            // Get equipped hat at time of game (from contract state)
+            try {
+                const equippedHat = await gameManagerContract.getEquippedHat(eventArgs.players[i]);
+                player.equippedHat = equippedHat.toNumber();
+
+                // Add hat type if not default
+                if (player.equippedHat !== 0) {
+                    try {
+                        player.hatType = await hatNFTContract.getHatType(player.equippedHat);
+                    } catch (error) {
+                        console.log('Could not fetch hat type for player:', error.message);
+                    }
                 }
+            } catch (error) {
+                console.log('Could not fetch equipped hat for player:', error.message);
+                player.equippedHat = 0;
             }
 
             players.push(player);
         }
 
-        // Sort players by time (ascending - faster is better)
-        players.sort((a, b) => a.time - b.time);
+        // Sort players by score according to current scoring mode
+        players.sort((a, b) => {
+            return isDescendingOrder ? b.score - a.score : a.score - b.score;
+        });
         players.forEach((player, index) => {
             player.position = index + 1;
         });
@@ -477,8 +531,10 @@ app.get('/game/:gameId', async (req, res) => {
         res.json({
             gameId: gameIdNum,
             playerCount: eventArgs.playerCount.toNumber(),
-            timestamp: new Date(eventArgs.timestamp.toNumber() * 1000).toISOString(),
+            timestamp: new Date(gameEvent.blockNumber ? 'Unknown' : new Date().toISOString()),
             winner: eventArgs.winner,
+            isDescendingOrder: isDescendingOrder,
+            scoringMode: isDescendingOrder ? 'Higher scores better' : 'Lower scores better',
             players: players
         });
 
@@ -551,17 +607,37 @@ app.post('/leaderboard/custom', async (req, res) => {
             });
         }
 
+        // Get current scoring mode
+        const isDescendingOrder = await gameManagerContract.isDescendingOrder();
+
         const players = [];
 
         // Get stats for each player
         for (const address of addresses) {
             try {
                 const stats = await gameManagerContract.playerStats(address);
+
+                // Get total games from events
+                let totalGames = 0;
+                try {
+                    const gameFilter = gameManagerContract.filters.GameSubmitted(null, null, null, null, null);
+                    const events = await gameManagerContract.queryFilter(gameFilter);
+
+                    for (const event of events) {
+                        const players = event.args.players;
+                        if (players.some(p => p.toLowerCase() === address.toLowerCase())) {
+                            totalGames++;
+                        }
+                    }
+                } catch (error) {
+                    console.log('Could not fetch game count for player:', error.message);
+                }
+
                 players.push({
                     address: address,
                     bestScore: stats.hasPlayed ? stats.bestScore.toNumber() : null,
                     totalWins: stats.totalWins.toNumber(),
-                    totalGames: stats.totalGames.toNumber(),
+                    totalGames: totalGames,
                     hasPlayed: stats.hasPlayed
                 });
             } catch (error) {
@@ -576,16 +652,18 @@ app.post('/leaderboard/custom', async (req, res) => {
             }
         }
 
-        // Sort by best score (ascending - faster is better), unplayed players at the end
+        // Sort by best score according to current scoring mode, unplayed players at the end
         players.sort((a, b) => {
             if (!a.hasPlayed && !b.hasPlayed) return 0;
             if (!a.hasPlayed) return 1;
             if (!b.hasPlayed) return -1;
-            return a.bestScore - b.bestScore;
+            return isDescendingOrder ? b.bestScore - a.bestScore : a.bestScore - b.bestScore;
         });
 
         res.json({
             playerCount: addresses.length,
+            isDescendingOrder: isDescendingOrder,
+            scoringMode: isDescendingOrder ? 'Higher scores better' : 'Lower scores better',
             players: players,
             timestamp: new Date().toISOString()
         });
@@ -621,6 +699,7 @@ app.use((req, res) => {
             'GET /player/:address/stats',
             'GET /player/:address/equipped',
             'GET /game/:gameId',
+            'GET /scoring',
             'GET /leaderboard',
             'POST /leaderboard/custom'
         ]
@@ -644,6 +723,7 @@ app.listen(PORT, () => {
     console.log(`   GET  http://localhost:${PORT}/player/:address/stats`);
     console.log(`   GET  http://localhost:${PORT}/player/:address/equipped`);
     console.log(`   GET  http://localhost:${PORT}/game/:gameId`);
+    console.log(`   GET  http://localhost:${PORT}/scoring`);
     console.log(`   GET  http://localhost:${PORT}/leaderboard`);
     console.log(`   POST http://localhost:${PORT}/leaderboard/custom`);
     console.log(`\n💡 Example: http://localhost:${PORT}/player/0x742d35Cc6634C0532925a3b8d0c05E6E4b8c3C0E/stats\n`);

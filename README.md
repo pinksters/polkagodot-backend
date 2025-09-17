@@ -21,35 +21,38 @@ ERC721 NFT contract for collectible racing hats with 4 unique types:
 - IPFS metadata storage
 - Hat type tracking
 
-#### 2. GameManagerLite Contract
+#### 2. GameManager Contract
 **Address:** `0xb4F7A6aF596FF963a00Bf27C9438fB88Abf5f414`
 
-Optimized racing game management contract designed for Paseo's initcode limits:
+Enhanced racing game management contract with flexible scoring system:
 
 **Core Features:**
 - **Hat Equipment System**: Players equip owned NFT hats (default hat if none equipped)
 - **Race Results**: Support for up to 7 players per race
-- **Player Statistics**: Best times, total games, wins, equipped hats
+- **Flexible Scoring**: Toggle between descending (higher scores better) and ascending (lower scores better) modes
+- **Player Statistics**: Best scores, total games, wins, equipped hats
 - **Event-Driven History**: Complete game history via blockchain events
 
 **Contract Functions:**
 ```solidity
 // Hat Management
 function equipHat(uint256 tokenId) external
-function playerStats(address player) external view returns (...)
+function getEquippedHat(address player) external view returns (uint256)
 
 // Game Management (Owner Only)  
-function submitGameResult(address[] players, uint256[] times) external
+function submitGameResult(address[] players, uint256[] scores) external
+function toggleScoreOrdering() external // Toggle between descending/ascending
 
 // Queries
+function playerStats(address) external view returns (uint256 bestScore, uint256 totalWins, uint256 equippedHat, bool hasPlayed)
 function getTotalGames() external view returns (uint256)
+function isDescendingOrder() external view returns (bool)
 ```
 
 **Events:**
 ```solidity
-event GameCompleted(uint256 gameId, address winner, uint256 playerCount, address[] players, uint256[] times, uint256[] equippedHats, uint256 timestamp)
-event HatEquipped(address indexed player, uint256 indexed tokenId)
-event NewPersonalBest(address indexed player, uint256 newBestScore, uint256 gameId)
+event GameSubmitted(uint256 indexed gameId, address indexed winner, uint256 playerCount, address[] players, uint256[] scores)
+event ScoreOrderingChanged(bool isDescendingOrder)
 ```
 
 ## 🚀 Backend API
@@ -121,19 +124,23 @@ Body: { "addresses": ["0x...", "0x..."] }
 
 ### Racing System
 - **Max Players:** 7 per race
-- **Scoring:** Lower time = better (racing game)
-- **Winner:** Player with fastest time
+- **Scoring Modes:** 
+  - **Descending (Default):** Higher scores = better (e.g., 100 beats 50)
+  - **Ascending:** Lower scores = better (e.g., 50 beats 100)
+- **Winner:** Player with best score according to current ordering mode
 - **Hat Snapshots:** Player's equipped hat recorded per game
 
 ### Statistics Tracking
-- **Personal Bests:** Automatic tracking with game reference
+- **Personal Bests:** Automatic tracking with game reference (respects current scoring mode)
 - **Win Counting:** Total first-place finishes
 - **Game History:** Complete list of participated games
 - **Hat Equipment:** Current equipped hat with metadata
+- **Score Ordering:** Dynamic switching between ascending/descending modes
 
 ### Data Architecture
-- **On-Chain:** Core stats and game results via events
-- **Backend:** Event reconstruction for rich queries
+- **On-Chain:** Minimal player stats (best score, wins, equipped hat)
+- **Events:** Complete game history via GameSubmitted events
+- **Backend:** Event reconstruction for game history and analytics
 - **IPFS:** NFT metadata storage
 
 ## 🛠️ Setup & Deployment
@@ -177,8 +184,17 @@ gameManager.equipHat(2); // Equip hat token ID 2
 ### Submit Game Results (Owner Only)
 ```solidity
 address[] memory players = [0x..., 0x..., 0x...];
-uint256[] memory times = [1250, 1340, 1180]; // milliseconds
-gameManager.submitGameResult(players, times);
+uint256[] memory scores = [100, 75, 120]; // scores (higher=better in descending mode)
+gameManager.submitGameResult(players, scores);
+```
+
+### Toggle Score Ordering (Owner Only)
+```solidity
+// Switch between descending and ascending modes
+gameManager.toggleScoreOrdering();
+
+// Check current mode
+bool isDescending = gameManager.isDescendingOrder(); // true = higher scores better
 ```
 
 ### Query Player Stats
@@ -203,18 +219,18 @@ curl http://localhost:3002/game/1
 ## 🔧 Technical Notes
 
 ### Contract Size Optimization
-GameManagerLite was specifically designed to fit Paseo's 49KB initcode limit by:
-- Removing dynamic arrays from storage
-- Using events for game history reconstruction
-- Minimal view functions
-- Optimized data structures
+GameManager was optimized to fit Paseo's 49KB initcode limit by:
+- Minimal on-chain storage (only essential player stats)
+- Event-driven architecture for game history
+- Removed complex view functions and dynamic arrays
+- Streamlined data structures
 
 ### Backend Event Processing
 The API reconstructs complete game history by:
-- Querying `GameCompleted` events
-- Building player participation lists
-- Enriching data with NFT metadata
-- Providing paginated responses
+- Querying `GameSubmitted` events for game data
+- Building player participation lists from events
+- Enriching data with current hat metadata
+- Providing real-time analytics
 
 ## 📝 License
 
