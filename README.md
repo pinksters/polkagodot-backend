@@ -7,26 +7,31 @@ A racing game ecosystem built on Polkadot's Paseo testnet featuring NFT hats and
 ### Smart Contracts
 
 #### 1. HatNFT Contract
+
 **Address:** `0x324a3b3A6E00E07A7EC13D03d468C257350A3Df9`
 
 ERC721 NFT contract for collectible racing hats with 4 unique types:
+
 - Hawaiian hat
-- Cowboy hat  
+- Cowboy hat
 - Bucket hat
 - Traffic cone
 
 **Key Features:**
+
 - Only 4 hats total (one of each type)
 - Owner-only minting
 - IPFS metadata storage
 - Hat type tracking
 
 #### 2. GameManager Contract
-**Address:** `0xb4F7A6aF596FF963a00Bf27C9438fB88Abf5f414`
+
+**Address:** `0x6613AEb8b4928f23ef24e3Fc918187BE84D7817B`
 
 Enhanced racing game management contract with flexible scoring system:
 
 **Core Features:**
+
 - **Hat Equipment System**: Players equip owned NFT hats (default hat if none equipped)
 - **Race Results**: Support for up to 7 players per race
 - **Flexible Scoring**: Toggle between descending (higher scores better) and ascending (lower scores better) modes
@@ -34,12 +39,13 @@ Enhanced racing game management contract with flexible scoring system:
 - **Event-Driven History**: Complete game history via blockchain events
 
 **Contract Functions:**
+
 ```solidity
 // Hat Management
 function equipHat(uint256 tokenId) external
 function getEquippedHat(address player) external view returns (uint256)
 
-// Game Management (Owner Only)  
+// Game Management (Owner Only)
 function submitGameResult(address[] players, uint256[] scores) external
 function toggleScoreOrdering() external // Toggle between descending/ascending
 
@@ -50,6 +56,7 @@ function isDescendingOrder() external view returns (bool)
 ```
 
 **Events:**
+
 ```solidity
 event GameSubmitted(uint256 indexed gameId, address indexed winner, uint256 playerCount, address[] players, uint256[] scores)
 event ScoreOrderingChanged(bool isDescendingOrder)
@@ -60,6 +67,7 @@ event ScoreOrderingChanged(bool isDescendingOrder)
 Express.js server providing comprehensive game analytics and NFT querying.
 
 ### Configuration
+
 - **Network:** Paseo Testnet (Polkadot)
 - **RPC:** `https://testnet-passet-hub-eth-rpc.polkadot.io`
 - **Port:** 3002
@@ -67,6 +75,7 @@ Express.js server providing comprehensive game analytics and NFT querying.
 ### API Endpoints
 
 #### Hat NFT Endpoints
+
 ```bash
 # Get all tokens owned by address
 GET /tokens/:address
@@ -80,6 +89,7 @@ GET /info
 ```
 
 #### Game Manager Endpoints
+
 ```bash
 # Player statistics with game history
 GET /player/:address/stats
@@ -123,14 +133,16 @@ Body: { "addresses": ["0x...", "0x..."] }
 ## 🏁 Game Mechanics
 
 ### Racing System
+
 - **Max Players:** 7 per race
-- **Scoring Modes:** 
+- **Scoring Modes:**
   - **Descending (Default):** Higher scores = better (e.g., 100 beats 50)
   - **Ascending:** Lower scores = better (e.g., 50 beats 100)
 - **Winner:** Player with best score according to current ordering mode
 - **Hat Snapshots:** Player's equipped hat recorded per game
 
 ### Statistics Tracking
+
 - **Personal Bests:** Automatic tracking with game reference (respects current scoring mode)
 - **Win Counting:** Total first-place finishes
 - **Game History:** Complete list of participated games
@@ -138,6 +150,7 @@ Body: { "addresses": ["0x...", "0x..."] }
 - **Score Ordering:** Dynamic switching between ascending/descending modes
 
 ### Data Architecture
+
 - **On-Chain:** Minimal player stats (best score, wins, equipped hat)
 - **Events:** Complete game history via GameSubmitted events
 - **Backend:** Event reconstruction for game history and analytics
@@ -146,22 +159,27 @@ Body: { "addresses": ["0x...", "0x..."] }
 ## 🛠️ Setup & Deployment
 
 ### Prerequisites
+
 - Node.js 14+
 - Ethereum wallet with Paseo testnet tokens
 
 ### Installation
+
 ```bash
 npm install
 ```
 
 ### Environment
+
 Update contract addresses in `index.js`:
+
 ```javascript
 const HAT_NFT_ADDRESS = '0x324a3b3A6E00E07A7EC13D03d468C257350A3Df9';
-const GAME_MANAGER_ADDRESS = '0xb4F7A6aF596FF963a00Bf27C9438fB88Abf5f414';
+const GAME_MANAGER_ADDRESS = '0x6613AEb8b4928f23ef24e3Fc918187BE84D7817B';
 ```
 
 ### Run Server
+
 ```bash
 npm start
 # or for development
@@ -169,6 +187,7 @@ npm run dev
 ```
 
 ### Smart Contract Deployment
+
 1. Deploy `HatNFT.sol` first
 2. Deploy `GameManagerLite.sol` with HatNFT address
 3. Update backend configuration
@@ -176,12 +195,14 @@ npm run dev
 ## 📊 Usage Examples
 
 ### Equip a Hat
+
 ```solidity
 // Contract interaction
 gameManager.equipHat(2); // Equip hat token ID 2
 ```
 
 ### Submit Game Results (Owner Only)
+
 ```solidity
 address[] memory players = [0x..., 0x..., 0x...];
 uint256[] memory scores = [100, 75, 120]; // scores (higher=better in descending mode)
@@ -189,6 +210,7 @@ gameManager.submitGameResult(players, scores);
 ```
 
 ### Toggle Score Ordering (Owner Only)
+
 ```solidity
 // Switch between descending and ascending modes
 gameManager.toggleScoreOrdering();
@@ -198,11 +220,13 @@ bool isDescending = gameManager.isDescendingOrder(); // true = higher scores bet
 ```
 
 ### Query Player Stats
+
 ```bash
 curl http://localhost:3002/player/0x742d35Cc6634C0532925a3b8d0c05E6E4b8c3C0E/stats
 ```
 
 ### Get Game Results
+
 ```bash
 curl http://localhost:3002/game/1
 ```
@@ -219,14 +243,18 @@ curl http://localhost:3002/game/1
 ## 🔧 Technical Notes
 
 ### Contract Size Optimization
+
 GameManager was optimized to fit Paseo's 49KB initcode limit by:
+
 - Minimal on-chain storage (only essential player stats)
 - Event-driven architecture for game history
 - Removed complex view functions and dynamic arrays
 - Streamlined data structures
 
 ### Backend Event Processing
+
 The API reconstructs complete game history by:
+
 - Querying `GameSubmitted` events for game data
 - Building player participation lists from events
 - Enriching data with current hat metadata
