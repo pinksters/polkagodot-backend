@@ -8,7 +8,7 @@ A racing game ecosystem built on Polkadot's Paseo testnet featuring NFT hats and
 
 #### 1. HatNFT Contract
 
-**Address:** `0x19160f83751816FAF5C28F9B5086399E2653E147`
+**Address:** `0x3C0e12dCE9BCae9a0ba894Ef848b2A007c723428`
 
 ERC721 NFT contract for collectible racing hats with 4 unique types:
 
@@ -19,14 +19,15 @@ ERC721 NFT contract for collectible racing hats with 4 unique types:
 
 **Key Features:**
 
-- Only 4 hats total (one of each type)
+- Ultra-minimal contract design (fits testnet limits)
 - Owner-only minting
 - IPFS metadata storage
-- Hat type tracking
+- GameManager integration for automatic unequipping on transfer
+- Manual transfer function with unequip logic
 
 #### 2. GameManager Contract
 
-**Address:** `0x6B6b4C445a46c65666360abCcCAd00B12B8AD1E2`
+**Address:** `0x8Fdd529C529db331869e3AA910f8986fDCc2510F`
 
 Enhanced racing game management contract with flexible scoring system:
 
@@ -37,16 +38,21 @@ Enhanced racing game management contract with flexible scoring system:
 - **Flexible Scoring**: Toggle between descending (higher scores better) and ascending (lower scores better) modes
 - **Player Statistics**: Best scores, total games, wins, equipped hats
 - **Event-Driven History**: Complete game history via blockchain events
+- **Ownership Verification**: Races verify players own their equipped hats before allowing participation
+- **Automatic Unequip**: Hats are automatically unequipped when transferred to prevent ownership issues
 
 **Contract Functions:**
 
 ```solidity
 // Hat Management
 function equipHat(uint256 tokenId) external
+function unequipHat() external // Set hat to 0 (default)
 function getEquippedHat(address player) external view returns (uint256)
+function verifyHatOwnership(address player) external view returns (bool)
+function unequipHatForPlayer(address player, uint256 tokenId) external // Called by HatNFT on transfer
 
 // Game Management (Owner Only)
-function submitGameResult(address[] players, uint256[] scores) external
+function submitGameResult(address[] players, uint256[] scores) external // Verifies hat ownership before race
 function toggleScoreOrdering() external // Toggle between descending/ascending
 
 // Queries
@@ -191,8 +197,8 @@ npm install
 Update contract addresses in `index.js`:
 
 ```javascript
-const HAT_NFT_ADDRESS = '0x19160f83751816FAF5C28F9B5086399E2653E147';
-const GAME_MANAGER_ADDRESS = '0x6B6b4C445a46c65666360abCcCAd00B12B8AD1E2';
+const HAT_NFT_ADDRESS = '0x3C0e12dCE9BCae9a0ba894Ef848b2A007c723428';
+const GAME_MANAGER_ADDRESS = '0x8Fdd529C529db331869e3AA910f8986fDCc2510F';
 ```
 
 ### Run Server
@@ -206,16 +212,26 @@ npm run dev
 ### Smart Contract Deployment
 
 1. Deploy `HatNFT.sol` first
-2. Deploy `GameManagerLite.sol` with HatNFT address
-3. Update backend configuration
+2. Deploy `GameManager.sol` with HatNFT address
+3. Call `setGameManager(gameManagerAddress)` on HatNFT contract to enable auto-unequip
+4. Update backend configuration
 
 ## 📊 Usage Examples
 
-### Equip a Hat
+### Hat Management
 
 ```solidity
-// Contract interaction
+// Equip a hat
 gameManager.equipHat(2); // Equip hat token ID 2
+
+// Unequip current hat (set to default)
+gameManager.unequipHat();
+
+// Check hat ownership before race
+bool ownsHat = gameManager.verifyHatOwnership(playerAddress);
+
+// Get currently equipped hat
+uint256 equippedHat = gameManager.getEquippedHat(playerAddress);
 ```
 
 ### Submit Game Results (Owner Only)

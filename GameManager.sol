@@ -40,8 +40,27 @@ contract GameManager is Ownable {
         playerStats[msg.sender].equippedHat = tokenId;
     }
 
+    function unequipHat() external {
+        playerStats[msg.sender].equippedHat = DEFAULT_HAT_ID;
+    }
+
     function getEquippedHat(address player) external view returns (uint256) {
         return playerStats[player].equippedHat;
+    }
+
+    function verifyHatOwnership(address player) external view returns (bool) {
+        uint256 equippedHat = playerStats[player].equippedHat;
+        if (equippedHat == DEFAULT_HAT_ID) {
+            return true; // No hat equipped is always valid
+        }
+        return hatNFT.ownerOf(equippedHat) == player;
+    }
+
+    function unequipHatForPlayer(address player, uint256 tokenId) external {
+        require(msg.sender == address(hatNFT), "Only HatNFT contract can call this");
+        if (playerStats[player].equippedHat == tokenId) {
+            playerStats[player].equippedHat = DEFAULT_HAT_ID;
+        }
     }
 
     function toggleScoreOrdering() external onlyOwner {
@@ -55,6 +74,11 @@ contract GameManager is Ownable {
     ) external onlyOwner {
         require(players.length == scores.length, "Arrays length mismatch");
         require(players.length > 0 && players.length <= 7, "Invalid player count");
+        
+        // Verify all players own their equipped hats
+        for (uint256 i = 0; i < players.length; i++) {
+            require(this.verifyHatOwnership(players[i]), "Player doesn't own equipped hat");
+        }
 
         address winner = players[0];
         uint256 winnerScore = scores[0];

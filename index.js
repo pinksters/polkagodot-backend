@@ -4,8 +4,8 @@ const { ethers } = require('ethers');
 const fetch = require('node-fetch');
 
 // Configuration
-const HAT_NFT_ADDRESS = process.env.HAT_NFT_ADDRESS || '0x19160f83751816FAF5C28F9B5086399E2653E147';
-const GAME_MANAGER_ADDRESS = process.env.GAME_MANAGER_ADDRESS || '0x6B6b4C445a46c65666360abCcCAd00B12B8AD1E2';
+const HAT_NFT_ADDRESS = process.env.HAT_NFT_ADDRESS || '0x3C0e12dCE9BCae9a0ba894Ef848b2A007c723428';
+const GAME_MANAGER_ADDRESS = process.env.GAME_MANAGER_ADDRESS || '0x8Fdd529C529db331869e3AA910f8986fDCc2510F';
 const RPC_URL = process.env.RPC_URL || 'https://testnet-passet-hub-eth-rpc.polkadot.io';
 const PORT = process.env.PORT || 3002;
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
@@ -15,7 +15,8 @@ const HAT_NFT_ABI = [
     "function ownerOf(uint256 tokenId) view returns (address)",
     "function totalSupply() view returns (uint256)",
     "function tokenURI(uint256 tokenId) view returns (string)",
-    "function getHatType(uint256 tokenId) view returns (string)"
+    "function transfer(address to, uint256 tokenId)",
+    "function setGameManager(address _gameManager)"
 ];
 
 // GameManager ABI
@@ -23,7 +24,13 @@ const GAME_MANAGER_ABI = [
     "function playerStats(address) view returns (uint256 bestScore, uint256 totalWins, uint256 equippedHat, bool hasPlayed)",
     "function getTotalGames() view returns (uint256)",
     "function isDescendingOrder() view returns (bool)",
+    "function equipHat(uint256 tokenId)",
+    "function unequipHat()",
     "function getEquippedHat(address player) view returns (uint256)",
+    "function verifyHatOwnership(address player) view returns (bool)",
+    "function unequipHatForPlayer(address player, uint256 tokenId)",
+    "function submitGameResult(address[] players, uint256[] scores)",
+    "function toggleScoreOrdering()",
     "event GameSubmitted(uint256 indexed gameId, address indexed winner, uint256 playerCount, address[] players, uint256[] scores)",
     "event ScoreOrderingChanged(bool isDescendingOrder)"
 ];
