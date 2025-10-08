@@ -5,8 +5,8 @@ const fetch = require('node-fetch');
 const GameDatabase = require('./database');
 
 // Configuration
-const HAT_NFT_ADDRESS = process.env.HAT_NFT_ADDRESS || '0x3C0e12dCE9BCae9a0ba894Ef848b2A007c723428';
-const GAME_MANAGER_ADDRESS = process.env.GAME_MANAGER_ADDRESS || '0x8Fdd529C529db331869e3AA910f8986fDCc2510F';
+const HAT_NFT_ADDRESS = process.env.HAT_NFT_ADDRESS || '0xc180757733B4c7303336799BAfc7dC410e6715B4';
+const GAME_MANAGER_ADDRESS = process.env.GAME_MANAGER_ADDRESS || '0x2e079c40099a0bAd5EB89478e748D07567292F6e';
 const RPC_URL = process.env.RPC_URL || 'https://testnet-passet-hub-eth-rpc.polkadot.io';
 const PORT = process.env.PORT || 3002;
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
@@ -75,16 +75,16 @@ async function getHatTypeFromTokenId(tokenId) {
 
         // Get token URI
         const tokenURI = await hatNFTContract.tokenURI(tokenId);
-        
+
         // Fetch JSON metadata
         const response = await fetch(tokenURI);
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        
+
         const metadata = await response.json();
         return metadata.name || `Hat #${tokenId}`;
-        
+
     } catch (error) {
         console.log(`Could not fetch hat type for token ${tokenId}:`, error.message);
         return `Hat #${tokenId}`;
@@ -97,7 +97,7 @@ async function syncGameFromEvent(event) {
     try {
         const args = event.args;
         const gameId = args.gameId.toNumber();
-        
+
         // Check if game already exists in DB
         if (db.gameExists(gameId)) {
             console.log(`⏭️  Game ${gameId} already in database, skipping...`);
@@ -127,7 +127,7 @@ async function syncGameFromEvent(event) {
                 score: args.scores[i].toNumber()
             });
         }
-        
+
         players.sort((a, b) => {
             return isDescendingOrder ? b.score - a.score : a.score - b.score;
         });
@@ -135,14 +135,14 @@ async function syncGameFromEvent(event) {
         // Insert participants with their hat info
         for (let i = 0; i < players.length; i++) {
             const player = players[i];
-            
+
             // Get equipped hat info (from current state - limitation of blockchain)
             let equippedHat = 0;
             let hatType = null;
             try {
                 const hatId = await gameManagerContract.getEquippedHat(player.address);
                 equippedHat = hatId.toNumber();
-                
+
                 if (equippedHat !== 0) {
                     // Get actual hat type from JSON metadata
                     hatType = await getHatTypeFromTokenId(equippedHat);
@@ -163,7 +163,7 @@ async function syncGameFromEvent(event) {
 
         // Update player stats for all participants
         await updatePlayerStats(players.map(p => p.address));
-        
+
         console.log(`✅ Game ${gameId} synced to database`);
 
     } catch (error) {
@@ -200,29 +200,29 @@ async function updatePlayerStats(playerAddresses) {
 async function syncHistoricalGames() {
     try {
         console.log('🔄 Syncing historical games...');
-        
+
         const syncState = db.getSyncState();
         const startBlock = syncState.last_synced_block || 0;
-        
+
         // Get all GameSubmitted events from last synced block
         const filter = gameManagerContract.filters.GameSubmitted();
         const events = await gameManagerContract.queryFilter(filter, startBlock);
-        
+
         console.log(`📚 Found ${events.length} historical games to sync`);
-        
+
         for (const event of events) {
             await syncGameFromEvent(event);
         }
-        
+
         // Update sync state
         if (events.length > 0) {
             const latestEvent = events[events.length - 1];
             const latestGameId = latestEvent.args.gameId.toNumber();
             db.updateSyncState(latestEvent.blockNumber, latestGameId);
         }
-        
+
         console.log('✅ Historical sync complete');
-        
+
     } catch (error) {
         console.error('❌ Error syncing historical games:', error);
     }
@@ -231,7 +231,7 @@ async function syncHistoricalGames() {
 // Start event listeners for real-time sync
 function startEventListeners() {
     console.log('👂 Starting blockchain event listeners...');
-    
+
     // Listen for new games
     gameManagerContract.on('GameSubmitted', (gameId, winner, playerCount, players, scores, event) => {
         console.log(`🎮 New game event detected: Game ${gameId.toNumber()}`);
@@ -242,7 +242,7 @@ function startEventListeners() {
     gameManagerContract.on('ScoreOrderingChanged', (isDescendingOrder, event) => {
         console.log(`🔄 Score ordering changed: ${isDescendingOrder ? 'Descending' : 'Ascending'}`);
     });
-    
+
     console.log('✅ Event listeners active');
 }
 
@@ -395,15 +395,15 @@ app.get('/info', async (req, res) => {
 app.get('/db/info', async (req, res) => {
     try {
         const syncState = db.getSyncState();
-        
+
         // Get database counts
         const gameCount = db.db.prepare('SELECT COUNT(*) as count FROM games').get().count;
         const playerCount = db.db.prepare('SELECT COUNT(*) as count FROM player_stats WHERE has_played = TRUE').get().count;
         const participantCount = db.db.prepare('SELECT COUNT(*) as count FROM game_participants').get().count;
-        
+
         // Get recent games
         const recentGames = db.getAllGames(5, 0);
-        
+
         res.json({
             database: {
                 file: 'pinkhat.db',
@@ -428,7 +428,7 @@ app.get('/db/info', async (req, res) => {
             })),
             timestamp: new Date().toISOString()
         });
-        
+
     } catch (error) {
         console.error('Error getting database info:', error);
         res.status(500).json({
@@ -724,7 +724,7 @@ app.get('/player/:address/stats', async (req, res) => {
         // Try to get stats from database first (much faster)
         try {
             const dbResult = db.getPlayerStats(address);
-            
+
             if (dbResult.stats) {
                 const response = {
                     address: address,
@@ -767,7 +767,7 @@ app.get('/player/:address/stats', async (req, res) => {
 
         // Fallback to blockchain query
         console.log(`🔗 Querying blockchain for ${address} stats (database miss)`);
-        
+
         const playerStats = await gameManagerContract.playerStats(address);
 
         const response = {
@@ -926,7 +926,7 @@ app.get('/game/:gameId', async (req, res) => {
         // Try to get game from database first
         try {
             const gameData = db.getGame(gameIdNum);
-            
+
             if (gameData) {
                 const response = {
                     gameId: gameIdNum,
@@ -1046,7 +1046,7 @@ app.get('/leaderboard', async (req, res) => {
         // Try to get leaderboard from database first
         try {
             const players = db.getLeaderboard(limit);
-            
+
             if (players.length > 0) {
                 const leaderboard = players.map((player, index) => ({
                     rank: index + 1,
@@ -1226,7 +1226,7 @@ app.listen(PORT, async () => {
     console.log(`🌐 RPC: ${RPC_URL}`);
     console.log(`⚙️  Using Ethers v5`);
     console.log(`💾 Database: SQLite (pinkhat.db)`);
-    
+
     // Initialize blockchain sync
     try {
         await syncHistoricalGames();
@@ -1235,7 +1235,7 @@ app.listen(PORT, async () => {
         console.error('❌ Failed to initialize blockchain sync:', error.message);
         console.log('⚠️  Server will continue but database may be out of sync');
     }
-    
+
     console.log(`\n📡 Available endpoints:`);
     console.log(`   === HAT NFT ===`);
     console.log(`   GET  http://localhost:${PORT}/`);

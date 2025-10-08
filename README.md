@@ -8,12 +8,12 @@ A racing game ecosystem built on Polkadot's Paseo testnet featuring NFT hats and
 
 #### 1. HatNFT Contract
 
-**Address:** `0x3C0e12dCE9BCae9a0ba894Ef848b2A007c723428`
+**Address:** `0xc180757733B4c7303336799BAfc7dC410e6715B4`
 
 Ultra-minimal ERC721 NFT contract for collectible racing hats with 4 unique types:
 
 - **Hawaiian Hat** (Token ID 1)
-- **Cowboy Hat** (Token ID 2) 
+- **Cowboy Hat** (Token ID 2)
 - **Bucket Hat** (Token ID 3)
 - **Traffic Cone** (Token ID 4)
 
@@ -30,7 +30,7 @@ Hat types are determined by fetching JSON metadata from IPFS via `tokenURI()`.
 
 #### 2. GameManager Contract
 
-**Address:** `0x8Fdd529C529db331869e3AA910f8986fDCc2510F`
+**Address:** `0x2e079c40099a0bAd5EB89478e748D07567292F6e`
 
 Enhanced racing game management contract with flexible scoring system:
 
@@ -236,7 +236,7 @@ POST /admin/toggle-scoring
 ### Data Architecture
 
 - **On-Chain:** Minimal player stats (best score, wins, equipped hat)
-- **Events:** Complete game history via GameSubmitted events  
+- **Events:** Complete game history via GameSubmitted events
 - **Database:** SQLite cache with automatic blockchain sync for fast queries
 - **Backend:** Database-first with blockchain fallback for reliability
 - **IPFS:** NFT metadata storage
@@ -294,7 +294,7 @@ CREATE TABLE player_stats (
 | Operation | Blockchain Query | Database Query |
 |-----------|------------------|----------------|
 | Player Stats | 2-5 seconds | < 1ms |
-| Game History | 5-10 seconds | < 1ms |  
+| Game History | 5-10 seconds | < 1ms |
 | Leaderboard | Not possible* | < 1ms |
 | Game Details | 1-3 seconds | < 1ms |
 
@@ -338,6 +338,7 @@ npm install
 ```
 
 **Dependencies Added:**
+
 - `better-sqlite3` - High-performance SQLite database
 - Automatic database initialization on first run
 - No additional setup required - database creates itself
@@ -360,6 +361,7 @@ npm run dev
 ```
 
 **On Startup:**
+
 1. Database automatically initializes (`pinkhat.db` created)
 2. Historical blockchain sync runs (syncs all past games)
 3. Real-time event listeners start
@@ -467,6 +469,7 @@ GameManager was optimized to fit Paseo's 49KB initcode limit by:
 The backend now uses a hybrid approach:
 
 **Database Layer:**
+
 - SQLite database automatically syncs with blockchain events
 - Sub-millisecond query responses for all operations
 - Complete game history with transaction hashes and parameters
@@ -474,14 +477,16 @@ The backend now uses a hybrid approach:
 - Real leaderboards and rich analytics
 
 **Blockchain Sync:**
+
 - Historical sync on startup catches up all past games
 - Real-time event listeners sync new games instantly
 - Automatic fallback to blockchain if database query fails
 - Zero data loss - blockchain remains source of truth
 
 **Performance Gains:**
+
 - Player stats: 2-5s → < 1ms (2000x faster)
-- Game history: 5-10s → < 1ms (5000x faster)  
+- Game history: 5-10s → < 1ms (5000x faster)
 - Leaderboards: Impossible → < 1ms (now possible)
 - Offline capability: API works even if RPC is down
 
