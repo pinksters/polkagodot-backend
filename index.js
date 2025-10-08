@@ -373,7 +373,7 @@ app.get('/info', async (req, res) => {
             rpc: RPC_URL,
             hatNFT: {
                 totalSupply: totalSupply,
-                baseURI: 'https://pinkhats.4everland.store/'
+                baseURI: 'https://hat.dotispink.com/'
             },
             gameManager: {
                 totalGames: totalGames,
