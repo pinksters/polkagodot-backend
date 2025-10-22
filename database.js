@@ -92,7 +92,7 @@ class GameDatabase {
             gameData.transactionHash,
             gameData.winner,
             gameData.playerCount,
-            gameData.isDescendingOrder
+            gameData.isDescendingOrder ? 1 : 0
         );
     }
 
@@ -159,7 +159,7 @@ class GameDatabase {
             statsData.totalWins,
             statsData.totalGames,
             statsData.currentEquippedHat,
-            statsData.hasPlayed
+            statsData.hasPlayed ? 1 : 0
         );
     }
 
