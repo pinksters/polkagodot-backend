@@ -1,7 +1,7 @@
 {
-  "name": "pinkhat",
+  "name": "polkagodot-backend",
   "version": "1.0.0",
-  "description": "Express server for querying Hat NFT tokens with metadata from Polkadot testnet",
+  "description": "Production-ready backend template for building games with customizable NFTs on Polkadot Asset Hub",
   "main": "src/server/index.js",
   "scripts": {
     "start": "node src/server/index.js",
@@ -9,7 +9,7 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "mar1dev",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
     "better-sqlite3": "^12.4.1",
     "dotenv": "^17.2.2",
