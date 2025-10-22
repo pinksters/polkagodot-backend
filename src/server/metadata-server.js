@@ -27,7 +27,7 @@ function loadBaseMetadata() {
     console.log('Loading base metadata files...');
 
     for (const tokenId of BASE_METADATA_FILES) {
-        const filePath = path.join(__dirname, `${tokenId}.json`);
+        const filePath = path.join(__dirname, '../../assets/metadata', `${tokenId}.json`);
 
         try {
             const content = fs.readFileSync(filePath, 'utf8');
