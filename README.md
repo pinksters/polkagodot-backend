@@ -42,6 +42,7 @@ polkagodot-backend/
 
 - **[NFT Contract](src/contracts/hat.sol)** - ERC721 for game items/collectibles
 - **[Game Manager](src/contracts/GameManager.sol)** - Game logic, player stats, equipment
+- **[Rewards Manager](src/contracts/RewardsMinimal.sol)** - Automated reward distribution system
 
 ### Game Backend API
 
@@ -57,7 +58,9 @@ Express.js server ([src/server/](src/server/)) providing:
 - **🎨 NFT Equipment System** - Players equip owned NFTs as game items
 - **📊 Player Statistics** - Automatic tracking of wins, scores, games played
 - **🏆 Leaderboards** - Real-time rankings and competitive features
-- **🔍 Ownership Verification** - Ensure players own their equipped items
+- **💰 Automated Rewards** - Instant reward distribution to game winners (PASEO)
+- **🔍 Ownership Verification** - Server-side verification of NFT ownership
+- **🎁 Configurable Prizes** - Set reward amounts, winner counts, and percentage splits
 - **💾 High-Performance Cache** - Lightning-fast queries with SQLite
 - **📈 Game Analytics** - Track player behavior and game metrics
 
@@ -77,14 +80,48 @@ Express.js server ([src/server/](src/server/)) providing:
    PRIVATE_KEY=your-game-admin-private-key
 
    # Your Game Contracts
-   NFT_CONTRACT_ADDRESS=0x...  # Your game items contract
-   GAME_MANAGER_ADDRESS=0x...  # Your game logic contract
+   HAT_NFT_ADDRESS=0x...        # Your game items contract
+   GAME_MANAGER_ADDRESS=0x...   # Your game logic contract
+   REWARDS_MANAGER_ADDRESS=0x... # Your rewards distribution contract
 
    # Server Configuration
    PORT=3002
    ```
 
 3. **Customize for your game** - Update contracts and metadata for your specific game items
+
+## 🏆 Automated Rewards System
+
+The rewards system automatically distributes prizes to game winners without any manual claiming required.
+
+### Setup Rewards
+
+1. **Configure Global Rewards** (on-chain):
+   ```solidity
+   // Configure rewards: 1 PASEO total, 3 winners, 50%/30%/20% split
+   configureGlobalRewards(1000000000000000000, 3, [50, 30, 20])
+   ```
+
+2. **Fund the Contract**:
+   ```bash
+   # Send PASEO to rewards contract address
+   # Contract only supports native PASEO tokens
+   ```
+
+3. **Automatic Distribution**:
+   - When you submit game results via `/admin/submit-game`
+   - Winners are automatically determined by scores
+   - Rewards are instantly distributed to winner wallets
+   - No claiming process needed!
+
+### Features
+
+- ✅ **Native PASEO Support** - Reward in native Paseo testnet tokens
+- ✅ **Configurable Splits** - Set custom percentage distributions
+- ✅ **Multiple Winners** - Support 1-3 winners per game
+- ✅ **Instant Distribution** - No delays or claiming required
+- ✅ **Global Configuration** - One setup works for all games
+- ✅ **Server Integration** - Fully automated via game submission
 
 ## 🎯 Game API Endpoints
 
@@ -102,8 +139,13 @@ Express.js server ([src/server/](src/server/)) providing:
 
 ### Game Operations
 
-- `POST /admin/submit-game` - Submit match results
+- `POST /admin/submit-game` - Submit match results (auto-distributes rewards)
 - `GET /game/:gameId` - Match details and player performance
+
+### Rewards System
+
+- `GET /rewards/config` - View current reward configuration (amounts, percentages, winners)
+- `POST /verify/ownership` - Verify NFT ownership for multiple tokens at once
 
 ## 🗂️ Key Files for Game Development
 
