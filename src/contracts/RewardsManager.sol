@@ -1,6 +1,6 @@
 pragma solidity 0.8.19;
 
-contract RewardsMinimal {
+contract RewardsManager {
     address owner;
     uint256 public totalRewardAmount;
     uint8 public numberOfWinners;
@@ -71,6 +71,19 @@ contract RewardsMinimal {
             if (!rewardsClaimed[gameId][p] && address(this).balance >= totalRewardAmount * percent3 / 100) {
                 rewardsClaimed[gameId][p] = true;
                 payable(p).transfer(totalRewardAmount * percent3 / 100);
+            }
+        }
+    }
+
+    // Direct reward distribution for leaderboard rewards (no storage, flexible winners)
+    function distributeLeaderboardRewards(address[] calldata winners, uint256[] calldata amounts) external {
+        require(msg.sender == owner);
+        require(winners.length == amounts.length);
+        require(winners.length <= 10); // Reasonable gas limit
+
+        for (uint i = 0; i < winners.length; i++) {
+            if (address(this).balance >= amounts[i] && amounts[i] > 0) {
+                payable(winners[i]).transfer(amounts[i]);
             }
         }
     }

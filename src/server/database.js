@@ -184,12 +184,77 @@ class GameDatabase {
 
     getLeaderboard(limit = 10) {
         const stmt = this.db.prepare(`
-            SELECT * FROM player_stats 
-            WHERE has_played = TRUE 
-            ORDER BY total_wins DESC, best_score DESC 
+            SELECT * FROM player_stats
+            WHERE has_played = TRUE
+            ORDER BY total_wins DESC, best_score DESC
             LIMIT ?
         `);
         return stmt.all(limit);
+    }
+
+    // Get top scores within a specific time period
+    getTopScoresInTimeRange(limit = 10, hoursBack = 12, isDescendingOrder = true) {
+        const stmt = this.db.prepare(`
+            SELECT
+                gp.player_address,
+                gp.score,
+                gp.game_id,
+                gp.equipped_hat_id,
+                gp.hat_type,
+                g.created_at,
+                g.block_number,
+                g.transaction_hash
+            FROM game_participants gp
+            JOIN games g ON gp.game_id = g.game_id
+            WHERE g.created_at >= datetime('now', '-' || ? || ' hours')
+            ORDER BY gp.score ${isDescendingOrder ? 'DESC' : 'ASC'}
+            LIMIT ?
+        `);
+        return stmt.all(hoursBack, limit);
+    }
+
+    // Get top scores for each player within a time range (best score per player)
+    getTopPlayersInTimeRange(limit = 10, hoursBack = 12, isDescendingOrder = true) {
+        const orderBy = isDescendingOrder ? 'DESC' : 'ASC';
+        const bestScoreFunc = isDescendingOrder ? 'MAX' : 'MIN';
+
+        const stmt = this.db.prepare(`
+            SELECT
+                gp.player_address,
+                ${bestScoreFunc}(gp.score) as best_score,
+                COUNT(DISTINCT gp.game_id) as games_played,
+                MIN(gp.equipped_hat_id) as equipped_hat_id,
+                MIN(gp.hat_type) as hat_type,
+                MAX(g.created_at) as last_game_time
+            FROM game_participants gp
+            JOIN games g ON gp.game_id = g.game_id
+            WHERE g.created_at >= datetime('now', '-' || ? || ' hours')
+            GROUP BY gp.player_address
+            ORDER BY best_score ${orderBy}
+            LIMIT ?
+        `);
+        return stmt.all(hoursBack, limit);
+    }
+
+    // Get all games within a time range
+    getGamesInTimeRange(hoursBack = 12) {
+        const stmt = this.db.prepare(`
+            SELECT * FROM games
+            WHERE created_at >= datetime('now', '-' || ? || ' hours')
+            ORDER BY created_at DESC
+        `);
+        return stmt.all(hoursBack);
+    }
+
+    // Get player count within time range
+    getActivePlayersInTimeRange(hoursBack = 12) {
+        const stmt = this.db.prepare(`
+            SELECT COUNT(DISTINCT gp.player_address) as active_players
+            FROM game_participants gp
+            JOIN games g ON gp.game_id = g.game_id
+            WHERE g.created_at >= datetime('now', '-' || ? || ' hours')
+        `);
+        return stmt.get(hoursBack);
     }
 
     // === SYNC METHODS ===

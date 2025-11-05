@@ -90,11 +90,13 @@ Express.js server ([src/server/](src/server/)) providing:
 
 3. **Customize for your game** - Update contracts and metadata for your specific game items
 
-## 🏆 Automated Rewards System
+## 🏆 Dual Rewards System
 
-The rewards system automatically distributes prizes to game winners without any manual claiming required.
+The rewards system supports two distribution modes for maximum flexibility:
 
-### Setup Rewards
+### Mode 1: Per-Match Auto-Rewards
+
+Automatically distributes prizes to individual game winners without manual claiming.
 
 1. **Configure Global Rewards** (on-chain):
    ```solidity
@@ -114,14 +116,64 @@ The rewards system automatically distributes prizes to game winners without any 
    - Rewards are instantly distributed to winner wallets
    - No claiming process needed!
 
+### Mode 2: Leaderboard-Based Rewards
+
+Distribute rewards to top performers over time periods (tournaments, daily/weekly competitions).
+
+1. **Query Top Performers**:
+   ```bash
+   # Get top 3 players in last 12 hours
+   GET /leaderboard/top-scores?limit=3&hours=12&mode=players
+
+   # Get top 10 scores in last 24 hours
+   GET /leaderboard/top-scores?limit=10&hours=24&mode=scores
+   ```
+
+2. **Distribute Flexible Rewards**:
+   ```bash
+   POST /admin/distribute-leaderboard-rewards
+   {
+     "winners": ["0x123...", "0x456...", "0x789..."],
+     "amounts": ["1000000000000000000", "500000000000000000", "250000000000000000"],
+     "description": "12-hour tournament rewards"
+   }
+   ```
+
 ### Features
 
 - ✅ **Native PASEO Support** - Reward in native Paseo testnet tokens
-- ✅ **Configurable Splits** - Set custom percentage distributions
-- ✅ **Multiple Winners** - Support 1-3 winners per game
+- ✅ **Dual Distribution Modes** - Per-match auto-rewards OR leaderboard-based
+- ✅ **Flexible Winner Counts** - 1-3 winners (auto-mode) or 1-10 winners (leaderboard-mode)
+- ✅ **Time-Based Queries** - Query top scores/players within custom time ranges
+- ✅ **Tournament Support** - Perfect for periodic competitions and events
 - ✅ **Instant Distribution** - No delays or claiming required
-- ✅ **Global Configuration** - One setup works for all games
 - ✅ **Server Integration** - Fully automated via game submission
+
+### Perfect for Tournament Scenarios
+
+The leaderboard-based rewards are ideal for:
+
+- **12-hour Tournaments** - Reward top 3 players every 12 hours
+- **Daily/Weekly Competitions** - Regular reward cycles for sustained engagement
+- **Snake Game Leaderboards** - Single-player score competitions
+- **Milestone Rewards** - Special events and achievement-based prizes
+
+**Example: 12-hour Tournament Automation**
+```bash
+# Cron job runs every 12 hours
+# 1. Query top performers
+curl "http://localhost:3002/leaderboard/top-scores?limit=3&hours=12&mode=players"
+
+# 2. Extract winner addresses and calculate rewards
+# 3. Distribute rewards automatically
+curl -X POST "http://localhost:3002/admin/distribute-leaderboard-rewards" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "winners": ["0x123...", "0x456...", "0x789..."],
+    "amounts": ["1000000000000000000", "500000000000000000", "250000000000000000"],
+    "description": "12-hour tournament rewards - $(date)"
+  }'
+```
 
 ## 🎯 Game API Endpoints
 
@@ -130,6 +182,7 @@ The rewards system automatically distributes prizes to game winners without any 
 - `GET /player/:address/stats` - Player stats, inventory, match history
 - `GET /player/:address/equipped` - Currently equipped NFT items
 - `GET /leaderboard` - Global player rankings
+- `GET /leaderboard/top-scores` - Time-based leaderboard with flexible queries
 
 ### NFT Game Items
 
@@ -145,6 +198,7 @@ The rewards system automatically distributes prizes to game winners without any 
 ### Rewards System
 
 - `GET /rewards/config` - View current reward configuration (amounts, percentages, winners)
+- `POST /admin/distribute-leaderboard-rewards` - Distribute rewards to flexible winner lists
 - `POST /verify/ownership` - Verify NFT ownership for multiple tokens at once
 
 ## 🗂️ Key Files for Game Development

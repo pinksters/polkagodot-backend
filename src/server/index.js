@@ -7,7 +7,7 @@ const GameDatabase = require('./database');
 // Configuration
 const HAT_NFT_ADDRESS = process.env.HAT_NFT_ADDRESS || '0xc180757733B4c7303336799BAfc7dC410e6715B4';
 const GAME_MANAGER_ADDRESS = process.env.GAME_MANAGER_ADDRESS || '0x2e079c40099a0bAd5EB89478e748D07567292F6e';
-const REWARDS_MANAGER_ADDRESS = process.env.REWARDS_MANAGER_ADDRESS || '0x6251D01C21DD3b84D42c3E76302183c7fe98E036';
+const REWARDS_MANAGER_ADDRESS = process.env.REWARDS_MANAGER_ADDRESS || '0x69E540B0a83A066DaB3E8f0160d98b5C0C6f64b0';
 const RPC_URL = process.env.RPC_URL || 'https://testnet-passet-hub-eth-rpc.polkadot.io';
 const PORT = process.env.PORT || 3002;
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
@@ -48,7 +48,8 @@ const REWARDS_MANAGER_ABI = [
     "function gameResultsStored(uint256) view returns (bool)",
     "function configureGlobalRewards(uint256 totalRewardAmount, uint8 numberOfWinners, uint256[] rewardPercentages)",
     "function submitGameResults(uint256 gameId, address[] winners)",
-    "function batchDistributeRewards(uint256 gameId)"
+    "function batchDistributeRewards(uint256 gameId)",
+    "function distributeLeaderboardRewards(address[] winners, uint256[] amounts)"
 ];
 
 // Initialize database
@@ -359,9 +360,11 @@ app.get('/', (req, res) => {
             'GET /game/:gameId': 'Get game result details',
             'GET /scoring': 'Get current scoring mode',
             'GET /leaderboard': 'Get leaderboard data',
+            'GET /leaderboard/top-scores': 'Get top scores within time range',
             'POST /leaderboard/custom': 'Get custom leaderboard for specific players',
             'POST /admin/submit-game': 'Submit game results (requires private key)',
-            'POST /admin/toggle-scoring': 'Toggle score ordering mode (requires private key)'
+            'POST /admin/toggle-scoring': 'Toggle score ordering mode (requires private key)',
+            'POST /admin/distribute-leaderboard-rewards': 'Distribute rewards to flexible winner list'
         }
     });
 });
@@ -880,6 +883,94 @@ app.post('/admin/distribute-rewards', async (req, res) => {
     }
 });
 
+// Distribute leaderboard rewards (flexible winners and amounts)
+app.post('/admin/distribute-leaderboard-rewards', async (req, res) => {
+    try {
+        if (!rewardsManagerWithSigner) {
+            return res.status(403).json({
+                error: 'Rewards manager not available'
+            });
+        }
+
+        const { winners, amounts, description } = req.body;
+
+        if (!Array.isArray(winners) || !Array.isArray(amounts)) {
+            return res.status(400).json({
+                error: 'Invalid request body',
+                message: 'Required: winners[], amounts[], optional: description'
+            });
+        }
+
+        if (winners.length !== amounts.length) {
+            return res.status(400).json({
+                error: 'Arrays length mismatch',
+                message: 'winners and amounts arrays must have the same length'
+            });
+        }
+
+        if (winners.length === 0 || winners.length > 10) {
+            return res.status(400).json({
+                error: 'Invalid winner count',
+                message: 'Must have between 1 and 10 winners'
+            });
+        }
+
+        // Validate addresses
+        for (const address of winners) {
+            if (!ethers.utils.isAddress(address)) {
+                return res.status(400).json({
+                    error: 'Invalid Ethereum address',
+                    address: address
+                });
+            }
+        }
+
+        // Validate amounts are positive numbers
+        for (const amount of amounts) {
+            if (typeof amount !== 'string' && typeof amount !== 'number') {
+                return res.status(400).json({
+                    error: 'Invalid amount format',
+                    message: 'All amounts must be strings or numbers representing wei values'
+                });
+            }
+        }
+
+        console.log(`💰 Distributing leaderboard rewards to ${winners.length} winners...`);
+        if (description) console.log(`📝 Description: ${description}`);
+
+        // Convert amounts to BigNumber strings if needed
+        const amountStrings = amounts.map(amount => amount.toString());
+
+        const tx = await rewardsManagerWithSigner.distributeLeaderboardRewards(winners, amountStrings);
+        const receipt = await tx.wait();
+
+        console.log(`✅ Leaderboard rewards distributed in block ${receipt.blockNumber}`);
+
+        // Calculate total distributed
+        const totalDistributed = amountStrings.reduce((sum, amount) => sum + BigInt(amount), 0n);
+
+        res.json({
+            success: true,
+            description: description || 'Leaderboard rewards distribution',
+            winnersCount: winners.length,
+            winners: winners,
+            amounts: amountStrings,
+            totalDistributed: totalDistributed.toString(),
+            transactionHash: tx.hash,
+            blockNumber: receipt.blockNumber,
+            gasUsed: receipt.gasUsed.toString(),
+            timestamp: new Date().toISOString()
+        });
+
+    } catch (error) {
+        console.error('Error in /admin/distribute-leaderboard-rewards:', error);
+        res.status(500).json({
+            error: 'Failed to distribute leaderboard rewards',
+            message: error.message
+        });
+    }
+});
+
 // === PUBLIC ENDPOINTS ===
 
 // Get player stats
@@ -1367,6 +1458,105 @@ app.post('/leaderboard/custom', async (req, res) => {
     }
 });
 
+// Time-based top scores leaderboard
+app.get('/leaderboard/top-scores', async (req, res) => {
+    try {
+        const limit = parseInt(req.query.limit) || 10;
+        const hours = parseInt(req.query.hours) || 12;
+        const mode = req.query.mode || 'scores'; // 'scores' or 'players'
+
+        if (limit > 100) {
+            return res.status(400).json({
+                error: 'Limit cannot exceed 100'
+            });
+        }
+
+        if (hours > 168) { // 1 week max
+            return res.status(400).json({
+                error: 'Hours cannot exceed 168 (1 week)'
+            });
+        }
+
+        // Get current scoring mode from contract if available
+        let isDescendingOrder = true;
+        try {
+            if (GAME_MANAGER_ADDRESS !== '0x0000000000000000000000000000000000000000') {
+                isDescendingOrder = await gameManagerContract.isDescendingOrder();
+            }
+        } catch (error) {
+            console.log('Could not get scoring mode, using default:', error.message);
+        }
+
+        let results;
+        let description;
+
+        if (mode === 'players') {
+            // Get best score per player within time range
+            results = db.getTopPlayersInTimeRange(limit, hours, isDescendingOrder);
+            description = `Top ${limit} players by best score in last ${hours} hours`;
+
+            // Format results for players mode
+            results = results.map((player, index) => ({
+                rank: index + 1,
+                address: player.player_address,
+                bestScore: player.best_score,
+                gamesPlayed: player.games_played,
+                equippedHat: player.equipped_hat_id,
+                hatType: player.hat_type,
+                lastGameTime: player.last_game_time
+            }));
+        } else {
+            // Get all scores within time range (multiple entries per player possible)
+            results = db.getTopScoresInTimeRange(limit, hours, isDescendingOrder);
+            description = `Top ${limit} scores in last ${hours} hours`;
+
+            // Format results for scores mode
+            results = results.map((entry, index) => ({
+                rank: index + 1,
+                address: entry.player_address,
+                score: entry.score,
+                gameId: entry.game_id,
+                equippedHat: entry.equipped_hat_id,
+                hatType: entry.hat_type,
+                gameTime: entry.created_at,
+                blockNumber: entry.block_number,
+                transactionHash: entry.transaction_hash
+            }));
+        }
+
+        // Get additional stats
+        const timeRangeStats = {
+            totalGames: db.getGamesInTimeRange(hours).length,
+            activePlayers: db.getActivePlayersInTimeRange(hours).active_players
+        };
+
+        res.json({
+            description: description,
+            timeRange: `Last ${hours} hours`,
+            mode: mode,
+            isDescendingOrder: isDescendingOrder,
+            scoringMode: isDescendingOrder ? 'Higher scores better' : 'Lower scores better',
+            resultCount: results.length,
+            limit: limit,
+            stats: timeRangeStats,
+            results: results,
+            timestamp: new Date().toISOString(),
+            query: {
+                limit: limit,
+                hours: hours,
+                mode: mode
+            }
+        });
+
+    } catch (error) {
+        console.error('Error in /leaderboard/top-scores:', error);
+        res.status(500).json({
+            error: 'Failed to get top scores',
+            message: error.message
+        });
+    }
+});
+
 // === PUBLIC REWARDS ENDPOINTS ===
 
 // Get global reward configuration
@@ -1509,12 +1699,14 @@ app.use((req, res) => {
             'GET /game/:gameId',
             'GET /scoring',
             'GET /leaderboard',
+            'GET /leaderboard/top-scores',
             'POST /leaderboard/custom',
             'POST /admin/submit-game',
             'POST /admin/toggle-scoring',
             '--- REWARDS ENDPOINTS ---',
             'POST /admin/submit-rewards-results',
             'POST /admin/distribute-rewards',
+            'POST /admin/distribute-leaderboard-rewards',
             'GET /rewards/config',
             'POST /verify/ownership'
         ]
