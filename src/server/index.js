@@ -12,6 +12,12 @@ const RPC_URL = process.env.RPC_URL || 'https://testnet-passet-hub-eth-rpc.polka
 const PORT = process.env.PORT || 3002;
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
 
+// Security Configuration
+const ADMIN_API_KEY = process.env.ADMIN_API_KEY;
+const RATE_LIMIT_REQUESTS = parseInt(process.env.RATE_LIMIT_REQUESTS) || 100;
+const RATE_LIMIT_WINDOW_MS = parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 60000;
+const ALLOWED_IPS = process.env.ALLOWED_IPS ? process.env.ALLOWED_IPS.split(',') : [];
+
 // HatNFT ABI
 const HAT_NFT_ABI = [
     "function ownerOf(uint256 tokenId) view returns (address)",
@@ -57,11 +63,113 @@ const db = new GameDatabase();
 
 const app = express();
 
-// Middleware
-app.use(express.json());
+// === SECURITY MIDDLEWARE ===
+
+// Rate limiting map (in-memory, use Redis for production)
+const rateLimitMap = new Map();
+
+// Rate limiting middleware
+const rateLimit = (req, res, next) => {
+    const clientIp = req.ip || req.connection.remoteAddress;
+    const now = Date.now();
+    const windowStart = now - RATE_LIMIT_WINDOW_MS;
+
+    if (!rateLimitMap.has(clientIp)) {
+        rateLimitMap.set(clientIp, []);
+    }
+
+    const requests = rateLimitMap.get(clientIp);
+    // Remove old requests outside the window
+    const validRequests = requests.filter(timestamp => timestamp > windowStart);
+
+    if (validRequests.length >= RATE_LIMIT_REQUESTS) {
+        return res.status(429).json({
+            error: 'Rate limit exceeded',
+            message: `Too many requests. Limit: ${RATE_LIMIT_REQUESTS} requests per ${RATE_LIMIT_WINDOW_MS/1000} seconds`
+        });
+    }
+
+    validRequests.push(now);
+    rateLimitMap.set(clientIp, validRequests);
+    next();
+};
+
+// IP whitelist middleware
+const ipWhitelist = (req, res, next) => {
+    if (ALLOWED_IPS.length === 0) return next(); // No IP restrictions
+
+    const clientIp = req.ip || req.connection.remoteAddress;
+    if (!ALLOWED_IPS.includes(clientIp) && !ALLOWED_IPS.includes('0.0.0.0')) {
+        console.log(`⚠️  Blocked request from unauthorized IP: ${clientIp}`);
+        return res.status(403).json({
+            error: 'Access denied',
+            message: 'Your IP address is not authorized'
+        });
+    }
+    next();
+};
+
+// Admin API key authentication middleware
+const adminAuth = (req, res, next) => {
+    if (!ADMIN_API_KEY) {
+        return res.status(503).json({
+            error: 'Admin API key not configured',
+            message: 'ADMIN_API_KEY must be set in environment variables'
+        });
+    }
+
+    const apiKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '');
+
+    if (!apiKey || apiKey !== ADMIN_API_KEY) {
+        console.log(`⚠️  Unauthorized admin access attempt from ${req.ip}`);
+        return res.status(401).json({
+            error: 'Unauthorized',
+            message: 'Valid API key required for admin operations'
+        });
+    }
+    next();
+};
+
+// Request sanitization middleware
+const sanitizeInput = (req, res, next) => {
+    // Remove null bytes and normalize strings
+    const sanitize = (obj) => {
+        if (typeof obj === 'string') {
+            return obj.replace(/\0/g, '').trim();
+        }
+        if (Array.isArray(obj)) {
+            return obj.map(sanitize);
+        }
+        if (obj && typeof obj === 'object') {
+            const sanitized = {};
+            for (const [key, value] of Object.entries(obj)) {
+                sanitized[key] = sanitize(value);
+            }
+            return sanitized;
+        }
+        return obj;
+    };
+
+    if (req.body) req.body = sanitize(req.body);
+    if (req.query) req.query = sanitize(req.query);
+    if (req.params) req.params = sanitize(req.params);
+    next();
+};
+
+// Basic Middleware
+app.use(express.json({ limit: '10mb' })); // Limit payload size
+app.use(rateLimit);
+app.use(sanitizeInput);
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, X-API-Key, Authorization');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+
+    // Security headers
+    res.header('X-Content-Type-Options', 'nosniff');
+    res.header('X-Frame-Options', 'DENY');
+    res.header('X-XSS-Protection', '1; mode=block');
+
     next();
 });
 
@@ -350,6 +458,13 @@ app.get('/', (req, res) => {
         },
         rpc: RPC_URL,
         ethersVersion: '5.x',
+        security: {
+            adminAuthEnabled: !!ADMIN_API_KEY,
+            rateLimitEnabled: true,
+            ipWhitelistEnabled: ALLOWED_IPS.length > 0,
+            requestsPerMinute: RATE_LIMIT_REQUESTS,
+            allowedIPs: ALLOWED_IPS.length > 0 ? ALLOWED_IPS.length + ' configured' : 'All IPs allowed'
+        },
         endpoints: {
             'GET /tokens/:address': 'Get all tokens owned by an address',
             'GET /tokens?address=0x...': 'Get all tokens owned by an address (query param)',
@@ -588,7 +703,7 @@ app.post('/tokens/batch', async (req, res) => {
 // === ADMIN ENDPOINTS (Require Private Key) ===
 
 // Submit game results
-app.post('/admin/submit-game', async (req, res) => {
+app.post('/admin/submit-game', adminAuth, ipWhitelist, async (req, res) => {
     try {
         if (!gameManagerWithSigner) {
             return res.status(403).json({
@@ -736,7 +851,7 @@ app.post('/admin/submit-game', async (req, res) => {
 });
 
 // Toggle score ordering
-app.post('/admin/toggle-scoring', async (req, res) => {
+app.post('/admin/toggle-scoring', adminAuth, ipWhitelist, async (req, res) => {
     try {
         if (!gameManagerWithSigner) {
             return res.status(403).json({
@@ -791,7 +906,7 @@ app.post('/admin/toggle-scoring', async (req, res) => {
 // === REWARDS ADMIN ENDPOINTS ===
 
 // Submit game results to rewards manager
-app.post('/admin/submit-rewards-results', async (req, res) => {
+app.post('/admin/submit-rewards-results', adminAuth, ipWhitelist, async (req, res) => {
     try {
         if (!rewardsManagerWithSigner) {
             return res.status(403).json({
@@ -834,7 +949,7 @@ app.post('/admin/submit-rewards-results', async (req, res) => {
 });
 
 // Distribute rewards for a game
-app.post('/admin/distribute-rewards', async (req, res) => {
+app.post('/admin/distribute-rewards', adminAuth, ipWhitelist, async (req, res) => {
     try {
         if (!rewardsManagerWithSigner) {
             return res.status(403).json({
@@ -884,7 +999,7 @@ app.post('/admin/distribute-rewards', async (req, res) => {
 });
 
 // Distribute leaderboard rewards (flexible winners and amounts)
-app.post('/admin/distribute-leaderboard-rewards', async (req, res) => {
+app.post('/admin/distribute-leaderboard-rewards', adminAuth, ipWhitelist, async (req, res) => {
     try {
         if (!rewardsManagerWithSigner) {
             return res.status(403).json({
@@ -1722,6 +1837,17 @@ app.listen(PORT, async () => {
     console.log(`🌐 RPC: ${RPC_URL}`);
     console.log(`⚙️  Using Ethers v5`);
     console.log(`💾 Database: SQLite (pinkhat.db)`);
+
+    // Security status
+    console.log(`\n🔒 Security Status:`);
+    console.log(`   🔑 Admin Auth: ${ADMIN_API_KEY ? '✅ Enabled' : '❌ Disabled (set ADMIN_API_KEY)'}`);
+    console.log(`   🚦 Rate Limiting: ✅ ${RATE_LIMIT_REQUESTS} requests per ${RATE_LIMIT_WINDOW_MS/1000}s`);
+    console.log(`   🌐 IP Whitelist: ${ALLOWED_IPS.length > 0 ? `✅ ${ALLOWED_IPS.length} IPs allowed` : '❌ All IPs allowed'}`);
+    console.log(`   🔐 Private Key: ${PRIVATE_KEY ? '✅ Configured' : '❌ Not configured (read-only mode)'}`);
+
+    if (!ADMIN_API_KEY) {
+        console.log(`\n⚠️  WARNING: Admin endpoints are not secured! Set ADMIN_API_KEY environment variable.`);
+    }
 
     // Initialize blockchain sync
     try {
