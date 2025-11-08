@@ -42,6 +42,7 @@ polkagodot-backend/
 
 - **[NFT Contract](src/contracts/hat.sol)** - ERC721 for game items/collectibles
 - **[Game Manager](src/contracts/GameManager.sol)** - Game logic, player stats, equipment
+- **[Rewards Manager](src/contracts/RewardsMinimal.sol)** - Automated reward distribution system
 
 ### Game Backend API
 
@@ -57,7 +58,9 @@ Express.js server ([src/server/](src/server/)) providing:
 - **🎨 NFT Equipment System** - Players equip owned NFTs as game items
 - **📊 Player Statistics** - Automatic tracking of wins, scores, games played
 - **🏆 Leaderboards** - Real-time rankings and competitive features
-- **🔍 Ownership Verification** - Ensure players own their equipped items
+- **💰 Automated Rewards** - Instant reward distribution to game winners (PASEO)
+- **🔍 Ownership Verification** - Server-side verification of NFT ownership
+- **🎁 Configurable Prizes** - Set reward amounts, winner counts, and percentage splits
 - **💾 High-Performance Cache** - Lightning-fast queries with SQLite
 - **📈 Game Analytics** - Track player behavior and game metrics
 
@@ -77,14 +80,100 @@ Express.js server ([src/server/](src/server/)) providing:
    PRIVATE_KEY=your-game-admin-private-key
 
    # Your Game Contracts
-   NFT_CONTRACT_ADDRESS=0x...  # Your game items contract
-   GAME_MANAGER_ADDRESS=0x...  # Your game logic contract
+   HAT_NFT_ADDRESS=0x...        # Your game items contract
+   GAME_MANAGER_ADDRESS=0x...   # Your game logic contract
+   REWARDS_MANAGER_ADDRESS=0x... # Your rewards distribution contract
 
    # Server Configuration
    PORT=3002
    ```
 
 3. **Customize for your game** - Update contracts and metadata for your specific game items
+
+## 🏆 Dual Rewards System
+
+The rewards system supports two distribution modes for maximum flexibility:
+
+### Mode 1: Per-Match Auto-Rewards
+
+Automatically distributes prizes to individual game winners without manual claiming.
+
+1. **Configure Global Rewards** (on-chain):
+   ```solidity
+   // Configure rewards: 1 PASEO total, 3 winners, 50%/30%/20% split
+   configureGlobalRewards(1000000000000000000, 3, [50, 30, 20])
+   ```
+
+2. **Fund the Contract**:
+   ```bash
+   # Send PASEO to rewards contract address
+   # Contract only supports native PASEO tokens
+   ```
+
+3. **Automatic Distribution**:
+   - When you submit game results via `/admin/submit-game`
+   - Winners are automatically determined by scores
+   - Rewards are instantly distributed to winner wallets
+   - No claiming process needed!
+
+### Mode 2: Leaderboard-Based Rewards
+
+Distribute rewards to top performers over time periods (tournaments, daily/weekly competitions).
+
+1. **Query Top Performers**:
+   ```bash
+   # Get top 3 players in last 12 hours
+   GET /leaderboard/top-scores?limit=3&hours=12&mode=players
+
+   # Get top 10 scores in last 24 hours
+   GET /leaderboard/top-scores?limit=10&hours=24&mode=scores
+   ```
+
+2. **Distribute Flexible Rewards**:
+   ```bash
+   POST /admin/distribute-leaderboard-rewards
+   {
+     "winners": ["0x123...", "0x456...", "0x789..."],
+     "amounts": ["1000000000000000000", "500000000000000000", "250000000000000000"],
+     "description": "12-hour tournament rewards"
+   }
+   ```
+
+### Features
+
+- ✅ **Native PASEO Support** - Reward in native Paseo testnet tokens
+- ✅ **Dual Distribution Modes** - Per-match auto-rewards OR leaderboard-based
+- ✅ **Flexible Winner Counts** - 1-3 winners (auto-mode) or 1-10 winners (leaderboard-mode)
+- ✅ **Time-Based Queries** - Query top scores/players within custom time ranges
+- ✅ **Tournament Support** - Perfect for periodic competitions and events
+- ✅ **Instant Distribution** - No delays or claiming required
+- ✅ **Server Integration** - Fully automated via game submission
+
+### Perfect for Tournament Scenarios
+
+The leaderboard-based rewards are ideal for:
+
+- **12-hour Tournaments** - Reward top 3 players every 12 hours
+- **Daily/Weekly Competitions** - Regular reward cycles for sustained engagement
+- **Snake Game Leaderboards** - Single-player score competitions
+- **Milestone Rewards** - Special events and achievement-based prizes
+
+**Example: 12-hour Tournament Automation**
+```bash
+# Cron job runs every 12 hours
+# 1. Query top performers
+curl "http://localhost:3002/leaderboard/top-scores?limit=3&hours=12&mode=players"
+
+# 2. Extract winner addresses and calculate rewards
+# 3. Distribute rewards automatically
+curl -X POST "http://localhost:3002/admin/distribute-leaderboard-rewards" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "winners": ["0x123...", "0x456...", "0x789..."],
+    "amounts": ["1000000000000000000", "500000000000000000", "250000000000000000"],
+    "description": "12-hour tournament rewards - $(date)"
+  }'
+```
 
 ## 🎯 Game API Endpoints
 
@@ -93,6 +182,7 @@ Express.js server ([src/server/](src/server/)) providing:
 - `GET /player/:address/stats` - Player stats, inventory, match history
 - `GET /player/:address/equipped` - Currently equipped NFT items
 - `GET /leaderboard` - Global player rankings
+- `GET /leaderboard/top-scores` - Time-based leaderboard with flexible queries
 
 ### NFT Game Items
 
@@ -102,8 +192,14 @@ Express.js server ([src/server/](src/server/)) providing:
 
 ### Game Operations
 
-- `POST /admin/submit-game` - Submit match results
+- `POST /admin/submit-game` - Submit match results (auto-distributes rewards)
 - `GET /game/:gameId` - Match details and player performance
+
+### Rewards System
+
+- `GET /rewards/config` - View current reward configuration (amounts, percentages, winners)
+- `POST /admin/distribute-leaderboard-rewards` - Distribute rewards to flexible winner lists
+- `POST /verify/ownership` - Verify NFT ownership for multiple tokens at once
 
 ## 🗂️ Key Files for Game Development
 

@@ -1,4 +1,4 @@
-require('dotenv').config({ path: '../../.env' });
+require('dotenv').config({ path: './config/.env' });
 const express = require('express');
 const { ethers } = require('ethers');
 const fetch = require('node-fetch');
@@ -7,9 +7,16 @@ const GameDatabase = require('./database');
 // Configuration
 const HAT_NFT_ADDRESS = process.env.HAT_NFT_ADDRESS || '0xc180757733B4c7303336799BAfc7dC410e6715B4';
 const GAME_MANAGER_ADDRESS = process.env.GAME_MANAGER_ADDRESS || '0x2e079c40099a0bAd5EB89478e748D07567292F6e';
+const REWARDS_MANAGER_ADDRESS = process.env.REWARDS_MANAGER_ADDRESS || '0x69E540B0a83A066DaB3E8f0160d98b5C0C6f64b0';
 const RPC_URL = process.env.RPC_URL || 'https://testnet-passet-hub-eth-rpc.polkadot.io';
 const PORT = process.env.PORT || 3002;
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
+
+// Security Configuration
+const ADMIN_API_KEY = process.env.ADMIN_API_KEY;
+const RATE_LIMIT_REQUESTS = parseInt(process.env.RATE_LIMIT_REQUESTS) || 100;
+const RATE_LIMIT_WINDOW_MS = parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 60000;
+const ALLOWED_IPS = process.env.ALLOWED_IPS ? process.env.ALLOWED_IPS.split(',') : [];
 
 // HatNFT ABI
 const HAT_NFT_ABI = [
@@ -36,16 +43,133 @@ const GAME_MANAGER_ABI = [
     "event ScoreOrderingChanged(bool isDescendingOrder)"
 ];
 
+// RewardsManager ABI - Minimal version
+const REWARDS_MANAGER_ABI = [
+    "function totalRewardAmount() view returns (uint256)",
+    "function numberOfWinners() view returns (uint8)",
+    "function isActive() view returns (bool)",
+    "function percent1() view returns (uint256)",
+    "function percent2() view returns (uint256)",
+    "function percent3() view returns (uint256)",
+    "function gameResultsStored(uint256) view returns (bool)",
+    "function configureGlobalRewards(uint256 totalRewardAmount, uint8 numberOfWinners, uint256[] rewardPercentages)",
+    "function submitGameResults(uint256 gameId, address[] winners)",
+    "function batchDistributeRewards(uint256 gameId)",
+    "function distributeLeaderboardRewards(address[] winners, uint256[] amounts)"
+];
+
 // Initialize database
 const db = new GameDatabase();
 
 const app = express();
 
-// Middleware
-app.use(express.json());
+// === SECURITY MIDDLEWARE ===
+
+// Rate limiting map (in-memory, use Redis for production)
+const rateLimitMap = new Map();
+
+// Rate limiting middleware
+const rateLimit = (req, res, next) => {
+    const clientIp = req.ip || req.connection.remoteAddress;
+    const now = Date.now();
+    const windowStart = now - RATE_LIMIT_WINDOW_MS;
+
+    if (!rateLimitMap.has(clientIp)) {
+        rateLimitMap.set(clientIp, []);
+    }
+
+    const requests = rateLimitMap.get(clientIp);
+    // Remove old requests outside the window
+    const validRequests = requests.filter(timestamp => timestamp > windowStart);
+
+    if (validRequests.length >= RATE_LIMIT_REQUESTS) {
+        return res.status(429).json({
+            error: 'Rate limit exceeded',
+            message: `Too many requests. Limit: ${RATE_LIMIT_REQUESTS} requests per ${RATE_LIMIT_WINDOW_MS/1000} seconds`
+        });
+    }
+
+    validRequests.push(now);
+    rateLimitMap.set(clientIp, validRequests);
+    next();
+};
+
+// IP whitelist middleware
+const ipWhitelist = (req, res, next) => {
+    if (ALLOWED_IPS.length === 0) return next(); // No IP restrictions
+
+    const clientIp = req.ip || req.connection.remoteAddress;
+    if (!ALLOWED_IPS.includes(clientIp) && !ALLOWED_IPS.includes('0.0.0.0')) {
+        console.log(`⚠️  Blocked request from unauthorized IP: ${clientIp}`);
+        return res.status(403).json({
+            error: 'Access denied',
+            message: 'Your IP address is not authorized'
+        });
+    }
+    next();
+};
+
+// Admin API key authentication middleware
+const adminAuth = (req, res, next) => {
+    if (!ADMIN_API_KEY) {
+        return res.status(503).json({
+            error: 'Admin API key not configured',
+            message: 'ADMIN_API_KEY must be set in environment variables'
+        });
+    }
+
+    const apiKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '');
+
+    if (!apiKey || apiKey !== ADMIN_API_KEY) {
+        console.log(`⚠️  Unauthorized admin access attempt from ${req.ip}`);
+        return res.status(401).json({
+            error: 'Unauthorized',
+            message: 'Valid API key required for admin operations'
+        });
+    }
+    next();
+};
+
+// Request sanitization middleware
+const sanitizeInput = (req, res, next) => {
+    // Remove null bytes and normalize strings
+    const sanitize = (obj) => {
+        if (typeof obj === 'string') {
+            return obj.replace(/\0/g, '').trim();
+        }
+        if (Array.isArray(obj)) {
+            return obj.map(sanitize);
+        }
+        if (obj && typeof obj === 'object') {
+            const sanitized = {};
+            for (const [key, value] of Object.entries(obj)) {
+                sanitized[key] = sanitize(value);
+            }
+            return sanitized;
+        }
+        return obj;
+    };
+
+    if (req.body) req.body = sanitize(req.body);
+    if (req.query) req.query = sanitize(req.query);
+    if (req.params) req.params = sanitize(req.params);
+    next();
+};
+
+// Basic Middleware
+app.use(express.json({ limit: '10mb' })); // Limit payload size
+app.use(rateLimit);
+app.use(sanitizeInput);
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, X-API-Key, Authorization');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+
+    // Security headers
+    res.header('X-Content-Type-Options', 'nosniff');
+    res.header('X-Frame-Options', 'DENY');
+    res.header('X-XSS-Protection', '1; mode=block');
+
     next();
 });
 
@@ -54,12 +178,22 @@ const provider = new ethers.providers.JsonRpcProvider(RPC_URL);
 const hatNFTContract = new ethers.Contract(HAT_NFT_ADDRESS, HAT_NFT_ABI, provider);
 const gameManagerContract = new ethers.Contract(GAME_MANAGER_ADDRESS, GAME_MANAGER_ABI, provider);
 
+// Initialize RewardsManager contract if address is provided
+let rewardsManagerContract;
+if (REWARDS_MANAGER_ADDRESS !== '0x0000000000000000000000000000000000000000') {
+    rewardsManagerContract = new ethers.Contract(REWARDS_MANAGER_ADDRESS, REWARDS_MANAGER_ABI, provider);
+}
+
 // Initialize wallet if private key is provided
 let wallet;
 let gameManagerWithSigner;
+let rewardsManagerWithSigner;
 if (PRIVATE_KEY) {
     wallet = new ethers.Wallet(PRIVATE_KEY, provider);
     gameManagerWithSigner = new ethers.Contract(GAME_MANAGER_ADDRESS, GAME_MANAGER_ABI, wallet);
+    if (rewardsManagerContract) {
+        rewardsManagerWithSigner = new ethers.Contract(REWARDS_MANAGER_ADDRESS, REWARDS_MANAGER_ABI, wallet);
+    }
     console.log(`🔑 Wallet connected: ${wallet.address}`);
 } else {
     console.log('⚠️  No private key provided - only read operations available');
@@ -316,13 +450,21 @@ async function getTokensForAddress(userAddress) {
 app.get('/', (req, res) => {
     res.json({
         status: 'OK',
-        message: 'Hat NFT & Game Manager Server (Ethers v5)',
+        message: 'Hat NFT, Game Manager & Rewards Server (Ethers v5)',
         contracts: {
             hatNFT: HAT_NFT_ADDRESS,
-            gameManager: GAME_MANAGER_ADDRESS
+            gameManager: GAME_MANAGER_ADDRESS,
+            rewardsManager: REWARDS_MANAGER_ADDRESS
         },
         rpc: RPC_URL,
         ethersVersion: '5.x',
+        security: {
+            adminAuthEnabled: !!ADMIN_API_KEY,
+            rateLimitEnabled: true,
+            ipWhitelistEnabled: ALLOWED_IPS.length > 0,
+            requestsPerMinute: RATE_LIMIT_REQUESTS,
+            allowedIPs: ALLOWED_IPS.length > 0 ? ALLOWED_IPS.length + ' configured' : 'All IPs allowed'
+        },
         endpoints: {
             'GET /tokens/:address': 'Get all tokens owned by an address',
             'GET /tokens?address=0x...': 'Get all tokens owned by an address (query param)',
@@ -333,9 +475,11 @@ app.get('/', (req, res) => {
             'GET /game/:gameId': 'Get game result details',
             'GET /scoring': 'Get current scoring mode',
             'GET /leaderboard': 'Get leaderboard data',
+            'GET /leaderboard/top-scores': 'Get top scores within time range',
             'POST /leaderboard/custom': 'Get custom leaderboard for specific players',
             'POST /admin/submit-game': 'Submit game results (requires private key)',
-            'POST /admin/toggle-scoring': 'Toggle score ordering mode (requires private key)'
+            'POST /admin/toggle-scoring': 'Toggle score ordering mode (requires private key)',
+            'POST /admin/distribute-leaderboard-rewards': 'Distribute rewards to flexible winner list'
         }
     });
 });
@@ -559,7 +703,7 @@ app.post('/tokens/batch', async (req, res) => {
 // === ADMIN ENDPOINTS (Require Private Key) ===
 
 // Submit game results
-app.post('/admin/submit-game', async (req, res) => {
+app.post('/admin/submit-game', adminAuth, ipWhitelist, async (req, res) => {
     try {
         if (!gameManagerWithSigner) {
             return res.status(403).json({
@@ -625,6 +769,64 @@ app.post('/admin/submit-game', async (req, res) => {
         const currentGameId = await gameManagerContract.getTotalGames();
         const gameId = currentGameId.toNumber();
 
+        // Check if global rewards are configured and automatically submit results
+        let rewardsStatus = null;
+        if (rewardsManagerContract) {
+            try {
+                const isRewardsActive = await rewardsManagerContract.isActive();
+                if (isRewardsActive) {
+                    console.log(`🎁 Rewards configured for game ${gameId}, auto-submitting results...`);
+
+                    // Sort players by score to determine winners
+                    const isDescendingOrder = await gameManagerContract.isDescendingOrder();
+                    const playerScores = players.map((player, index) => ({
+                        address: player,
+                        score: scores[index]
+                    }));
+
+                    playerScores.sort((a, b) => {
+                        return isDescendingOrder ? b.score - a.score : a.score - b.score;
+                    });
+
+                    // Get the top winners based on reward configuration
+                    const numberOfWinners = await rewardsManagerContract.numberOfWinners();
+                    const winners = playerScores.slice(0, numberOfWinners).map(p => p.address);
+
+                    // Submit results and auto-distribute rewards
+                    if (rewardsManagerWithSigner) {
+                        try {
+                            const rewardsTx = await rewardsManagerWithSigner.submitGameResults(gameId, winners);
+                            await rewardsTx.wait();
+                            console.log(`✅ Rewards results auto-submitted for game ${gameId}`);
+
+                            // Automatically distribute rewards to all winners
+                            console.log(`💰 Auto-distributing rewards for game ${gameId}...`);
+                            const distributeTx = await rewardsManagerWithSigner.batchDistributeRewards(gameId);
+                            await distributeTx.wait();
+                            console.log(`✅ Rewards auto-distributed for game ${gameId}`);
+
+                            rewardsStatus = {
+                                submitted: true,
+                                distributed: true,
+                                winners: winners,
+                                submitTxHash: rewardsTx.hash,
+                                distributeTxHash: distributeTx.hash
+                            };
+                        } catch (error) {
+                            console.error(`❌ Failed to auto-process rewards: ${error.message}`);
+                            rewardsStatus = {
+                                submitted: false,
+                                distributed: false,
+                                error: error.message
+                            };
+                        }
+                    }
+                }
+            } catch (error) {
+                console.log(`ℹ️ No global rewards configured`);
+            }
+        }
+
         res.json({
             success: true,
             gameId: gameId,
@@ -633,6 +835,7 @@ app.post('/admin/submit-game', async (req, res) => {
             gasUsed: receipt.gasUsed.toString(),
             players: players,
             scores: scores,
+            rewards: rewardsStatus,
             timestamp: new Date().toISOString()
         });
 
@@ -648,7 +851,7 @@ app.post('/admin/submit-game', async (req, res) => {
 });
 
 // Toggle score ordering
-app.post('/admin/toggle-scoring', async (req, res) => {
+app.post('/admin/toggle-scoring', adminAuth, ipWhitelist, async (req, res) => {
     try {
         if (!gameManagerWithSigner) {
             return res.status(403).json({
@@ -696,6 +899,189 @@ app.post('/admin/toggle-scoring', async (req, res) => {
             message: error.message,
             ...(error.code && { code: error.code }),
             ...(error.reason && { reason: error.reason })
+        });
+    }
+});
+
+// === REWARDS ADMIN ENDPOINTS ===
+
+// Submit game results to rewards manager
+app.post('/admin/submit-rewards-results', adminAuth, ipWhitelist, async (req, res) => {
+    try {
+        if (!rewardsManagerWithSigner) {
+            return res.status(403).json({
+                error: 'Rewards manager not available'
+            });
+        }
+
+        const { gameId, winners } = req.body;
+
+        if (gameId === undefined || !Array.isArray(winners)) {
+            return res.status(400).json({
+                error: 'Invalid request body',
+                message: 'Required: gameId, winners[]'
+            });
+        }
+
+        console.log(`🏆 Submitting game results for game ${gameId}...`);
+
+        const tx = await rewardsManagerWithSigner.submitGameResults(gameId, winners);
+        const receipt = await tx.wait();
+
+        console.log(`✅ Game results submitted in block ${receipt.blockNumber}`);
+
+        res.json({
+            success: true,
+            gameId: gameId,
+            winners: winners,
+            transactionHash: tx.hash,
+            blockNumber: receipt.blockNumber,
+            gasUsed: receipt.gasUsed.toString()
+        });
+
+    } catch (error) {
+        console.error('Error in /admin/submit-rewards-results:', error);
+        res.status(500).json({
+            error: 'Failed to submit game results',
+            message: error.message
+        });
+    }
+});
+
+// Distribute rewards for a game
+app.post('/admin/distribute-rewards', adminAuth, ipWhitelist, async (req, res) => {
+    try {
+        if (!rewardsManagerWithSigner) {
+            return res.status(403).json({
+                error: 'Rewards manager not available'
+            });
+        }
+
+        const { gameId, player } = req.body;
+
+        if (gameId === undefined) {
+            return res.status(400).json({
+                error: 'Invalid request body',
+                message: 'Required: gameId, optional: player (if not provided, distributes to all winners)'
+            });
+        }
+
+        console.log(`💰 Distributing rewards for game ${gameId}...`);
+
+        let tx;
+        if (player) {
+            // Distribute to specific player
+            tx = await rewardsManagerWithSigner.distributeReward(gameId, player);
+        } else {
+            // Batch distribute to all winners
+            tx = await rewardsManagerWithSigner.batchDistributeRewards(gameId);
+        }
+
+        const receipt = await tx.wait();
+        console.log(`✅ Rewards distributed in block ${receipt.blockNumber}`);
+
+        res.json({
+            success: true,
+            gameId: gameId,
+            player: player || 'all winners',
+            transactionHash: tx.hash,
+            blockNumber: receipt.blockNumber,
+            gasUsed: receipt.gasUsed.toString()
+        });
+
+    } catch (error) {
+        console.error('Error in /admin/distribute-rewards:', error);
+        res.status(500).json({
+            error: 'Failed to distribute rewards',
+            message: error.message
+        });
+    }
+});
+
+// Distribute leaderboard rewards (flexible winners and amounts)
+app.post('/admin/distribute-leaderboard-rewards', adminAuth, ipWhitelist, async (req, res) => {
+    try {
+        if (!rewardsManagerWithSigner) {
+            return res.status(403).json({
+                error: 'Rewards manager not available'
+            });
+        }
+
+        const { winners, amounts, description } = req.body;
+
+        if (!Array.isArray(winners) || !Array.isArray(amounts)) {
+            return res.status(400).json({
+                error: 'Invalid request body',
+                message: 'Required: winners[], amounts[], optional: description'
+            });
+        }
+
+        if (winners.length !== amounts.length) {
+            return res.status(400).json({
+                error: 'Arrays length mismatch',
+                message: 'winners and amounts arrays must have the same length'
+            });
+        }
+
+        if (winners.length === 0 || winners.length > 10) {
+            return res.status(400).json({
+                error: 'Invalid winner count',
+                message: 'Must have between 1 and 10 winners'
+            });
+        }
+
+        // Validate addresses
+        for (const address of winners) {
+            if (!ethers.utils.isAddress(address)) {
+                return res.status(400).json({
+                    error: 'Invalid Ethereum address',
+                    address: address
+                });
+            }
+        }
+
+        // Validate amounts are positive numbers
+        for (const amount of amounts) {
+            if (typeof amount !== 'string' && typeof amount !== 'number') {
+                return res.status(400).json({
+                    error: 'Invalid amount format',
+                    message: 'All amounts must be strings or numbers representing wei values'
+                });
+            }
+        }
+
+        console.log(`💰 Distributing leaderboard rewards to ${winners.length} winners...`);
+        if (description) console.log(`📝 Description: ${description}`);
+
+        // Convert amounts to BigNumber strings if needed
+        const amountStrings = amounts.map(amount => amount.toString());
+
+        const tx = await rewardsManagerWithSigner.distributeLeaderboardRewards(winners, amountStrings);
+        const receipt = await tx.wait();
+
+        console.log(`✅ Leaderboard rewards distributed in block ${receipt.blockNumber}`);
+
+        // Calculate total distributed
+        const totalDistributed = amountStrings.reduce((sum, amount) => sum + BigInt(amount), 0n);
+
+        res.json({
+            success: true,
+            description: description || 'Leaderboard rewards distribution',
+            winnersCount: winners.length,
+            winners: winners,
+            amounts: amountStrings,
+            totalDistributed: totalDistributed.toString(),
+            transactionHash: tx.hash,
+            blockNumber: receipt.blockNumber,
+            gasUsed: receipt.gasUsed.toString(),
+            timestamp: new Date().toISOString()
+        });
+
+    } catch (error) {
+        console.error('Error in /admin/distribute-leaderboard-rewards:', error);
+        res.status(500).json({
+            error: 'Failed to distribute leaderboard rewards',
+            message: error.message
         });
     }
 });
@@ -1187,6 +1573,223 @@ app.post('/leaderboard/custom', async (req, res) => {
     }
 });
 
+// Time-based top scores leaderboard
+app.get('/leaderboard/top-scores', async (req, res) => {
+    try {
+        const limit = parseInt(req.query.limit) || 10;
+        const hours = parseInt(req.query.hours) || 12;
+        const mode = req.query.mode || 'scores'; // 'scores' or 'players'
+
+        if (limit > 100) {
+            return res.status(400).json({
+                error: 'Limit cannot exceed 100'
+            });
+        }
+
+        if (hours > 168) { // 1 week max
+            return res.status(400).json({
+                error: 'Hours cannot exceed 168 (1 week)'
+            });
+        }
+
+        // Get current scoring mode from contract if available
+        let isDescendingOrder = true;
+        try {
+            if (GAME_MANAGER_ADDRESS !== '0x0000000000000000000000000000000000000000') {
+                isDescendingOrder = await gameManagerContract.isDescendingOrder();
+            }
+        } catch (error) {
+            console.log('Could not get scoring mode, using default:', error.message);
+        }
+
+        let results;
+        let description;
+
+        if (mode === 'players') {
+            // Get best score per player within time range
+            results = db.getTopPlayersInTimeRange(limit, hours, isDescendingOrder);
+            description = `Top ${limit} players by best score in last ${hours} hours`;
+
+            // Format results for players mode
+            results = results.map((player, index) => ({
+                rank: index + 1,
+                address: player.player_address,
+                bestScore: player.best_score,
+                gamesPlayed: player.games_played,
+                equippedHat: player.equipped_hat_id,
+                hatType: player.hat_type,
+                lastGameTime: player.last_game_time
+            }));
+        } else {
+            // Get all scores within time range (multiple entries per player possible)
+            results = db.getTopScoresInTimeRange(limit, hours, isDescendingOrder);
+            description = `Top ${limit} scores in last ${hours} hours`;
+
+            // Format results for scores mode
+            results = results.map((entry, index) => ({
+                rank: index + 1,
+                address: entry.player_address,
+                score: entry.score,
+                gameId: entry.game_id,
+                equippedHat: entry.equipped_hat_id,
+                hatType: entry.hat_type,
+                gameTime: entry.created_at,
+                blockNumber: entry.block_number,
+                transactionHash: entry.transaction_hash
+            }));
+        }
+
+        // Get additional stats
+        const timeRangeStats = {
+            totalGames: db.getGamesInTimeRange(hours).length,
+            activePlayers: db.getActivePlayersInTimeRange(hours).active_players
+        };
+
+        res.json({
+            description: description,
+            timeRange: `Last ${hours} hours`,
+            mode: mode,
+            isDescendingOrder: isDescendingOrder,
+            scoringMode: isDescendingOrder ? 'Higher scores better' : 'Lower scores better',
+            resultCount: results.length,
+            limit: limit,
+            stats: timeRangeStats,
+            results: results,
+            timestamp: new Date().toISOString(),
+            query: {
+                limit: limit,
+                hours: hours,
+                mode: mode
+            }
+        });
+
+    } catch (error) {
+        console.error('Error in /leaderboard/top-scores:', error);
+        res.status(500).json({
+            error: 'Failed to get top scores',
+            message: error.message
+        });
+    }
+});
+
+// === PUBLIC REWARDS ENDPOINTS ===
+
+// Get global reward configuration
+app.get('/rewards/config', async (req, res) => {
+    try {
+        if (!rewardsManagerContract) {
+            return res.status(503).json({
+                error: 'Rewards manager not deployed'
+            });
+        }
+
+        const isActiveCheck = await rewardsManagerContract.isActive();
+
+        if (!isActiveCheck) {
+            return res.status(404).json({
+                error: 'No active global rewards configuration found'
+            });
+        }
+
+        const totalRewardAmountValue = await rewardsManagerContract.totalRewardAmount();
+        const numberOfWinnersValue = await rewardsManagerContract.numberOfWinners();
+
+        // Get reward percentages (configurable)
+        const rewardPercentages = [];
+        if (numberOfWinnersValue >= 1) {
+            const percent1 = await rewardsManagerContract.percent1();
+            rewardPercentages.push(percent1.toNumber());
+        }
+        if (numberOfWinnersValue >= 2) {
+            const percent2 = await rewardsManagerContract.percent2();
+            rewardPercentages.push(percent2.toNumber());
+        }
+        if (numberOfWinnersValue >= 3) {
+            const percent3 = await rewardsManagerContract.percent3();
+            rewardPercentages.push(percent3.toNumber());
+        }
+
+        res.json({
+            tokenType: 'NATIVE', // Core version only supports native ETH
+            tokenAddress: '0x0000000000000000000000000000000000000000',
+            decimals: 18,
+            totalRewardAmount: totalRewardAmountValue.toString(),
+            numberOfWinners: numberOfWinnersValue,
+            rewardPercentages: rewardPercentages,
+            isActive: isActiveCheck,
+            timestamp: new Date().toISOString()
+        });
+
+    } catch (error) {
+        console.error('Error in /rewards/config:', error);
+        res.status(500).json({
+            error: 'Failed to get global reward configuration',
+            message: error.message
+        });
+    }
+});
+
+
+
+// Enhanced ownership verification endpoint
+app.post('/verify/ownership', async (req, res) => {
+    try {
+        const { address, tokenIds } = req.body;
+
+        if (!ethers.utils.isAddress(address)) {
+            return res.status(400).json({
+                error: 'Invalid Ethereum address',
+                address: address
+            });
+        }
+
+        if (!Array.isArray(tokenIds)) {
+            return res.status(400).json({
+                error: 'tokenIds must be an array'
+            });
+        }
+
+        const verificationResults = [];
+
+        for (const tokenId of tokenIds) {
+            try {
+                const owner = await hatNFTContract.ownerOf(tokenId);
+                const isOwned = owner.toLowerCase() === address.toLowerCase();
+
+                verificationResults.push({
+                    tokenId: tokenId,
+                    isOwned: isOwned,
+                    actualOwner: owner,
+                    verified: isOwned
+                });
+            } catch (error) {
+                verificationResults.push({
+                    tokenId: tokenId,
+                    isOwned: false,
+                    error: 'Token does not exist or query failed',
+                    verified: false
+                });
+            }
+        }
+
+        const allVerified = verificationResults.every(r => r.verified);
+
+        res.json({
+            address: address,
+            allTokensVerified: allVerified,
+            verificationResults: verificationResults,
+            timestamp: new Date().toISOString()
+        });
+
+    } catch (error) {
+        console.error('Error in /verify/ownership:', error);
+        res.status(500).json({
+            error: 'Failed to verify ownership',
+            message: error.message
+        });
+    }
+});
+
 // Error handling middleware
 app.use((error, req, res, next) => {
     console.error('Unhandled error:', error);
@@ -1211,9 +1814,16 @@ app.use((req, res) => {
             'GET /game/:gameId',
             'GET /scoring',
             'GET /leaderboard',
+            'GET /leaderboard/top-scores',
             'POST /leaderboard/custom',
             'POST /admin/submit-game',
-            'POST /admin/toggle-scoring'
+            'POST /admin/toggle-scoring',
+            '--- REWARDS ENDPOINTS ---',
+            'POST /admin/submit-rewards-results',
+            'POST /admin/distribute-rewards',
+            'POST /admin/distribute-leaderboard-rewards',
+            'GET /rewards/config',
+            'POST /verify/ownership'
         ]
     });
 });
@@ -1223,9 +1833,21 @@ app.listen(PORT, async () => {
     console.log(`🚀 Hat NFT & Game Manager Server running on port ${PORT}`);
     console.log(`📄 HatNFT Contract: ${HAT_NFT_ADDRESS}`);
     console.log(`🎮 GameManager Contract: ${GAME_MANAGER_ADDRESS}`);
+    console.log(`💰 RewardsManager Contract: ${REWARDS_MANAGER_ADDRESS}`);
     console.log(`🌐 RPC: ${RPC_URL}`);
     console.log(`⚙️  Using Ethers v5`);
     console.log(`💾 Database: SQLite (pinkhat.db)`);
+
+    // Security status
+    console.log(`\n🔒 Security Status:`);
+    console.log(`   🔑 Admin Auth: ${ADMIN_API_KEY ? '✅ Enabled' : '❌ Disabled (set ADMIN_API_KEY)'}`);
+    console.log(`   🚦 Rate Limiting: ✅ ${RATE_LIMIT_REQUESTS} requests per ${RATE_LIMIT_WINDOW_MS/1000}s`);
+    console.log(`   🌐 IP Whitelist: ${ALLOWED_IPS.length > 0 ? `✅ ${ALLOWED_IPS.length} IPs allowed` : '❌ All IPs allowed'}`);
+    console.log(`   🔐 Private Key: ${PRIVATE_KEY ? '✅ Configured' : '❌ Not configured (read-only mode)'}`);
+
+    if (!ADMIN_API_KEY) {
+        console.log(`\n⚠️  WARNING: Admin endpoints are not secured! Set ADMIN_API_KEY environment variable.`);
+    }
 
     // Initialize blockchain sync
     try {
