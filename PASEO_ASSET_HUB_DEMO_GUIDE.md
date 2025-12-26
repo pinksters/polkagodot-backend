@@ -132,6 +132,7 @@ npx hardhat run scripts/deploy.js --network paseo
 ```
 
 The deployment script will automatically:
+
 1. Deploy HatNFT first
 2. Deploy RewardsManager
 3. Deploy GameManager with the HatNFT address as constructor argument
@@ -178,61 +179,7 @@ You'll need to deploy **3 contracts** for PolkaGodot to work:
 
 ## Configuring PolkaGodot
 
-### Installing the Plugin
-
-Clone PolkaGodot into your Godot project:
-
-```bash
-cd your-godot-project
-git clone https://github.com/pinksters/polkagodot-plugin.git addons/polkagodot
-```
-
-In Godot, go to `Project` → `Project Settings` → `Plugins` and enable PolkaGodot.
-
-### Setting Up Your Config
-
-Copy the Paseo config template:
-
-```bash
-cp addons/polkagodot/config_examples/paseo_config.tres polkagodot_config.tres
-```
-
-Open `polkagodot_config.tres` and update it with your deployed contract addresses:
-
-```
-[resource]
-script = PolkaConfig
-
-chain_id = 420420422
-rpc_url = "https://testnet-passet-hub-eth-rpc.polkadot.io"
-
-# Replace these with your actual contract addresses from deployment
-# hat.sol address
-nft_contract_address = "0x..."
-# gameManager.sol address
-marketplace_contract_address = "0x..."
-# RewardsManager.sol address
-registry_contract_address = "0x..."
-```
-
-### Web Export Setup
-
-In Godot:
-
-1. Go to `Project` → `Export`
-2. Add a "Web" preset if you don't have one
-3. Under export settings, set Custom HTML Shell to: `res://addons/polkagodot/polkagodot_export_shell.html`
-
-## Running the Demo
-
-Export your project to a folder (like `build/`), then serve it locally:
-
-```bash
-cd build
-python -m http.server 8000
-```
-
-Open `http://localhost:8000` in your browser. Make sure your wallet is connected to Paseo Asset Hub.
+Please check [Manual Installation](https://github.com/pinksters/polkagodot-plugin/blob/master/README.md) from PolkaGodot's ReadMe.
 
 ### Testing It Out
 
@@ -261,21 +208,6 @@ Check your browser console for errors. Verify your custom HTML shell is configur
 - Paseo support: <https://github.com/paseo-network/support>
 - Matrix chat: <https://matrix.to/#/#paseo-testnet-support:parity.io>
 - PolkaGodot issues: <https://github.com/pinksters/polkagodot-plugin/issues>
-
-## Quick Checklist
-
-Before you start testing, make sure you've:
-
-- [ ] Set up your wallet for Paseo Asset Hub
-- [ ] Got test tokens from the faucet
-- [ ] Deployed your smart contracts
-- [ ] Installed and enabled the PolkaGodot plugin
-- [ ] Updated your config with contract addresses
-- [ ] Configured web export with the custom HTML shell
-- [ ] Got the demo running in your browser
-- [ ] Connected your wallet successfully
-- [ ] Tested NFT browsing and equipping
-- [ ] Verified transactions on-chain
 
 ---
 
