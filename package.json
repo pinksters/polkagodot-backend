@@ -18,7 +18,10 @@
     "node-fetch": "^2.6.7"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1"
+    "nodemon": "^3.0.1",
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "@parity/hardhat-polkadot": "^1.0.0",
+    "hardhat": "^2.19.0"
   },
   "engines": {
     "node": ">=14.0.0"
