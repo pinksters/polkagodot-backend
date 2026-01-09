@@ -262,6 +262,28 @@ Help make this template better for game builders:
 3. Test with real game scenarios
 4. Submit pull requests
 
+## Tests
+
+To test locally:
+
+1. `npm install`
+2. `npx hardhat clean`
+3. `npx hardhat node`
+4. In a separate terminal: `npm run test`
+5. Enjoy!
+
+
+To test live on Paseo:
+1. `npm install`
+2. `npx hardhat clean`
+3. Create four wallets on Paseo and note their private keys
+4. Fund one of the wallets with PAS tokens for contract deployment
+5. Copy `.env.example` to `.env` and assign the four private keys to `PASEO_TEST_PRIVATE_KEY_1` through `PASEO_TEST_PRIVATE_KEY_4`
+7. `npm run test:paseo`
+8. There was no step 6.
+
+
+
 ## 📄 License
 
 MIT

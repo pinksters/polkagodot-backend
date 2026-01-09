@@ -6,11 +6,13 @@
   "scripts": {
     "start": "node src/server/index.js",
     "dev": "nodemon src/server/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "npx hardhat compile && jest --runInBand --forceExit",
+    "test:paseo": "npx hardhat compile --network paseo && cross-env TEST_NETWORK=paseo jest --runInBand --forceExit --testTimeout=60000"
   },
   "author": "mar1dev",
   "license": "MIT",
   "dependencies": {
+    "@openzeppelin/contracts": "^5.4.0",
     "better-sqlite3": "^12.4.1",
     "dotenv": "^17.2.2",
     "ethers": "^5.7.2",
@@ -18,10 +20,14 @@
     "node-fetch": "^2.6.7"
   },
   "devDependencies": {
+    "@nomiclabs/hardhat-ethers": "^2.2.3",
+    "@parity/hardhat-polkadot": "^0.2.7",
+    "cross-env": "^10.1.0",
+    "hardhat": "^2.19.0",
+    "jest": "^30.2.0",
     "nodemon": "^3.0.1",
-    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
-    "@parity/hardhat-polkadot": "^1.0.0",
-    "hardhat": "^2.19.0"
+    "solc": "0.8.28",
+    "supertest": "^7.2.2"
   },
   "engines": {
     "node": ">=14.0.0"
