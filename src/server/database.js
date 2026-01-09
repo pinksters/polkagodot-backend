@@ -1,8 +1,15 @@
 const Database = require('better-sqlite3');
 const path = require('path');
+const fs = require('fs');
 
 class GameDatabase {
     constructor(dbPath = path.join(__dirname, '../../data/pinkhat.db')) {
+        // Ensure directory exists
+        const dir = path.dirname(dbPath);
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+        }
+
         this.db = new Database(dbPath);
         this.initializeTables();
         console.log(`📄 Database initialized: ${dbPath}`);

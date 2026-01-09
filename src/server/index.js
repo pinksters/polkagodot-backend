@@ -5,9 +5,9 @@ const fetch = require('node-fetch');
 const GameDatabase = require('./database');
 
 // Configuration
-const HAT_NFT_ADDRESS = process.env.HAT_NFT_ADDRESS || '0xc180757733B4c7303336799BAfc7dC410e6715B4';
-const GAME_MANAGER_ADDRESS = process.env.GAME_MANAGER_ADDRESS || '0x2e079c40099a0bAd5EB89478e748D07567292F6e';
-const REWARDS_MANAGER_ADDRESS = process.env.REWARDS_MANAGER_ADDRESS || '0x69E540B0a83A066DaB3E8f0160d98b5C0C6f64b0';
+const HAT_NFT_ADDRESS = process.env.HAT_NFT_ADDRESS || '';
+const GAME_MANAGER_ADDRESS = process.env.GAME_MANAGER_ADDRESS || '';
+const REWARDS_MANAGER_ADDRESS = process.env.REWARDS_MANAGER_ADDRESS || '';
 const RPC_URL = process.env.RPC_URL || 'https://testnet-passet-hub-eth-rpc.polkadot.io';
 const PORT = process.env.PORT || 3002;
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
@@ -1828,54 +1828,65 @@ app.use((req, res) => {
     });
 });
 
-// Start server
-app.listen(PORT, async () => {
-    console.log(`🚀 Hat NFT & Game Manager Server running on port ${PORT}`);
-    console.log(`📄 HatNFT Contract: ${HAT_NFT_ADDRESS}`);
-    console.log(`🎮 GameManager Contract: ${GAME_MANAGER_ADDRESS}`);
-    console.log(`💰 RewardsManager Contract: ${REWARDS_MANAGER_ADDRESS}`);
-    console.log(`🌐 RPC: ${RPC_URL}`);
-    console.log(`⚙️  Using Ethers v5`);
-    console.log(`💾 Database: SQLite (pinkhat.db)`);
+// Start server function - can be called programmatically for testing
+async function startServer() {
+    return new Promise((resolve) => {
+        const server = app.listen(PORT, async () => {
+            console.log(`🚀 Hat NFT & Game Manager Server running on port ${PORT}`);
+            console.log(`📄 HatNFT Contract: ${HAT_NFT_ADDRESS}`);
+            console.log(`🎮 GameManager Contract: ${GAME_MANAGER_ADDRESS}`);
+            console.log(`💰 RewardsManager Contract: ${REWARDS_MANAGER_ADDRESS}`);
+            console.log(`🌐 RPC: ${RPC_URL}`);
+            console.log(`⚙️  Using Ethers v5`);
+            console.log(`💾 Database: SQLite (pinkhat.db)`);
 
-    // Security status
-    console.log(`\n🔒 Security Status:`);
-    console.log(`   🔑 Admin Auth: ${ADMIN_API_KEY ? '✅ Enabled' : '❌ Disabled (set ADMIN_API_KEY)'}`);
-    console.log(`   🚦 Rate Limiting: ✅ ${RATE_LIMIT_REQUESTS} requests per ${RATE_LIMIT_WINDOW_MS/1000}s`);
-    console.log(`   🌐 IP Whitelist: ${ALLOWED_IPS.length > 0 ? `✅ ${ALLOWED_IPS.length} IPs allowed` : '❌ All IPs allowed'}`);
-    console.log(`   🔐 Private Key: ${PRIVATE_KEY ? '✅ Configured' : '❌ Not configured (read-only mode)'}`);
+            // Security status
+            console.log(`\n🔒 Security Status:`);
+            console.log(`   🔑 Admin Auth: ${ADMIN_API_KEY ? '✅ Enabled' : '❌ Disabled (set ADMIN_API_KEY)'}`);
+            console.log(`   🚦 Rate Limiting: ✅ ${RATE_LIMIT_REQUESTS} requests per ${RATE_LIMIT_WINDOW_MS/1000}s`);
+            console.log(`   🌐 IP Whitelist: ${ALLOWED_IPS.length > 0 ? `✅ ${ALLOWED_IPS.length} IPs allowed` : '❌ All IPs allowed'}`);
+            console.log(`   🔐 Private Key: ${PRIVATE_KEY ? '✅ Configured' : '❌ Not configured (read-only mode)'}`);
 
-    if (!ADMIN_API_KEY) {
-        console.log(`\n⚠️  WARNING: Admin endpoints are not secured! Set ADMIN_API_KEY environment variable.`);
-    }
+            if (!ADMIN_API_KEY) {
+                console.log(`\n⚠️  WARNING: Admin endpoints are not secured! Set ADMIN_API_KEY environment variable.`);
+            }
 
-    // Initialize blockchain sync
-    try {
-        await syncHistoricalGames();
-        startEventListeners();
-    } catch (error) {
-        console.error('❌ Failed to initialize blockchain sync:', error.message);
-        console.log('⚠️  Server will continue but database may be out of sync');
-    }
+            // Initialize blockchain sync
+            try {
+                await syncHistoricalGames();
+                startEventListeners();
+            } catch (error) {
+                console.error('❌ Failed to initialize blockchain sync:', error.message);
+                console.log('⚠️  Server will continue but database may be out of sync');
+            }
 
-    console.log(`\n📡 Available endpoints:`);
-    console.log(`   === HAT NFT ===`);
-    console.log(`   GET  http://localhost:${PORT}/`);
-    console.log(`   GET  http://localhost:${PORT}/info`);
-    console.log(`   GET  http://localhost:${PORT}/tokens/:address`);
-    console.log(`   POST http://localhost:${PORT}/tokens/batch`);
-    console.log(`   === GAME MANAGER ===`);
-    console.log(`   GET  http://localhost:${PORT}/player/:address/stats`);
-    console.log(`   GET  http://localhost:${PORT}/player/:address/equipped`);
-    console.log(`   GET  http://localhost:${PORT}/game/:gameId`);
-    console.log(`   GET  http://localhost:${PORT}/scoring`);
-    console.log(`   GET  http://localhost:${PORT}/leaderboard`);
-    console.log(`   POST http://localhost:${PORT}/leaderboard/custom`);
-    console.log(`   === ADMIN ENDPOINTS ===`);
-    console.log(`   POST http://localhost:${PORT}/admin/submit-game`);
-    console.log(`   POST http://localhost:${PORT}/admin/toggle-scoring`);
-    console.log(`\n💡 Example: http://localhost:${PORT}/player/0x742d35Cc6634C0532925a3b8d0c05E6E4b8c3C0E/stats\n`);
-});
+            console.log(`\n📡 Available endpoints:`);
+            console.log(`   === HAT NFT ===`);
+            console.log(`   GET  http://localhost:${PORT}/`);
+            console.log(`   GET  http://localhost:${PORT}/info`);
+            console.log(`   GET  http://localhost:${PORT}/tokens/:address`);
+            console.log(`   POST http://localhost:${PORT}/tokens/batch`);
+            console.log(`   === GAME MANAGER ===`);
+            console.log(`   GET  http://localhost:${PORT}/player/:address/stats`);
+            console.log(`   GET  http://localhost:${PORT}/player/:address/equipped`);
+            console.log(`   GET  http://localhost:${PORT}/game/:gameId`);
+            console.log(`   GET  http://localhost:${PORT}/scoring`);
+            console.log(`   GET  http://localhost:${PORT}/leaderboard`);
+            console.log(`   POST http://localhost:${PORT}/leaderboard/custom`);
+            console.log(`   === ADMIN ENDPOINTS ===`);
+            console.log(`   POST http://localhost:${PORT}/admin/submit-game`);
+            console.log(`   POST http://localhost:${PORT}/admin/toggle-scoring`);
+            console.log(`\n💡 Example: http://localhost:${PORT}/player/0x742d35Cc6634C0532925a3b8d0c05E6E4b8c3C0E/stats\n`);
+
+            resolve(server);
+        });
+    });
+}
+
+// Only start server automatically when run directly (not when imported for testing)
+if (require.main === module) {
+    startServer();
+}
 
 // Graceful shutdown
 process.on('SIGINT', () => {
@@ -1892,4 +1903,4 @@ process.on('SIGTERM', () => {
     process.exit(0);
 });
 
-module.exports = app;
+module.exports = { app, startServer };
